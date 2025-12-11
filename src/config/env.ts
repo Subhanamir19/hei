@@ -7,6 +7,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
+  MOCK_QUEUES: z.coerce.boolean().default(true),
 });
 
 export type Env = z.infer<typeof envSchema>;
