@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { OnboardingRequestBody, OnboardingResponse } from '../../../shared/api-contracts';
 import { db, heightLogs, userProfiles, users } from '../../db/client';
 import { predictionQueue, routineQueue } from '../../jobs/queues';
+import { createInitialPredictionForUser } from '../height/prediction.service';
+import { createInitialRoutineForUser } from '../routine/routine.generator';
 
 export const handleOnboarding = async (
   input: OnboardingRequestBody,
@@ -43,6 +45,9 @@ export const handleOnboarding = async (
         : new Date(),
     });
   }
+
+  await createInitialPredictionForUser(userId);
+  await createInitialRoutineForUser(userId);
 
   await predictionQueue.add('prediction', { userId });
   await routineQueue.add('routine', { userId });

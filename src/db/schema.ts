@@ -39,3 +39,45 @@ export const heightLogs = pgTable('height_logs', {
   heightCm: integer('height_cm').notNull(),
   recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
 });
+
+export const heightPredictions = pgTable('height_predictions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  predictedAdultHeightCm: integer('predicted_adult_height_cm').notNull(),
+  percentile: integer('percentile').notNull(),
+  dreamHeightOddsPercent: integer('dream_height_odds_percent').notNull(),
+  growthCompletionPercent: integer('growth_completion_percent').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const routines = pgTable('routines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  status: text('status').notNull(),
+  month: text('month').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const routineDays = pgTable('routine_days', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  routineId: uuid('routine_id')
+    .notNull()
+    .references(() => routines.id),
+  dayIndex: integer('day_index').notNull(),
+});
+
+export const routineTasks = pgTable('routine_tasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  routineDayId: uuid('routine_day_id')
+    .notNull()
+    .references(() => routineDays.id),
+  name: text('name').notNull(),
+  type: text('type').notNull(),
+  reps: integer('reps'),
+  durationMinutes: integer('duration_minutes'),
+});
