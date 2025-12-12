@@ -81,3 +81,14 @@ export const routineTasks = pgTable('routine_tasks', {
   reps: integer('reps'),
   durationMinutes: integer('duration_minutes'),
 });
+
+export const painEvents = pgTable('pain_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  area: text('area').notNull(),
+  severity: text('severity').notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

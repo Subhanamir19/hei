@@ -1,6 +1,6 @@
 import { FastifyPluginCallback } from 'fastify';
-import { GetActiveRoutineResponse } from '../../shared/api-contracts';
-import { getActiveRoutine } from '../modules/routine/routine.service';
+import { GetActiveRoutineResponse, GetRoutineDayResponse } from '../../shared/api-contracts';
+import { getActiveRoutine, getRoutineDay } from '../modules/routine/routine.service';
 
 const routineRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
   fastify.get<{ Reply: GetActiveRoutineResponse }>(
@@ -19,9 +19,28 @@ const routineRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
     },
   );
 
-  fastify.get('/routine/day/:index', async (_request, reply) => {
-    return reply.status(501).send({ message: 'Not implemented' });
-  });
+  fastify.get<{ Reply: GetRoutineDayResponse; Params: { index: string } }>(
+    '/routine/day/:index',
+    async (request) => {
+      const userIdHeader = request.headers['x-user-id'];
+      const dayIndex = Number(request.params.index);
+
+      if (typeof userIdHeader !== 'string') {
+        const error = new Error('Unauthorized');
+        (error as any).statusCode = 401;
+        throw error;
+      }
+
+      if (!Number.isInteger(dayIndex) || dayIndex < 1) {
+        const error = new Error('Invalid day index');
+        (error as any).statusCode = 400;
+        throw error;
+      }
+
+      const response = await getRoutineDay(userIdHeader, dayIndex);
+      return response;
+    },
+  );
 
   done();
 };

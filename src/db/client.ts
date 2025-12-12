@@ -4,6 +4,7 @@ import { env } from '../config/env';
 import {
   heightLogs,
   heightPredictions,
+  painEvents,
   routineDays,
   routineTasks,
   routines,
@@ -24,6 +25,7 @@ export {
   userProfiles,
   heightLogs,
   heightPredictions,
+  painEvents,
   routines,
   routineDays,
   routineTasks,
