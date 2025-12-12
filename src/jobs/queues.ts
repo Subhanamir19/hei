@@ -9,10 +9,17 @@ export interface AppQueue<T> {
 
 export interface PredictionJobData {
   readonly userId: UUID;
+  readonly inputHash?: string;
 }
 
 export interface RoutineJobData {
   readonly userId: UUID;
+  readonly inputHash?: string;
+}
+
+export interface RecoveryRoutineJobData {
+  readonly userId: UUID;
+  readonly inputHash?: string;
 }
 
 const connection = env.MOCK_QUEUES ? null : new IORedis(env.REDIS_URL);
@@ -42,3 +49,6 @@ const createQueue = <T>(name: string): AppQueue<T> => {
 export const predictionQueue: AppQueue<PredictionJobData> = createQueue<PredictionJobData>('prediction');
 
 export const routineQueue: AppQueue<RoutineJobData> = createQueue<RoutineJobData>('routine');
+
+export const recoveryRoutineQueue: AppQueue<RecoveryRoutineJobData> =
+  createQueue<RecoveryRoutineJobData>('recoveryRoutine');

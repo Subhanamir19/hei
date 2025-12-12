@@ -183,7 +183,7 @@ const generatePrediction = async (
   return computeDeterministicPrediction(profile, latestHeightLog);
 };
 
-export const createInitialPredictionForUser = async (userId: string): Promise<void> => {
+export const createInitialPredictionForUser = async (userId: string): Promise<string> => {
   const { profile, latestHeightLog } = await getProfileAndLatestHeightLog(userId);
   const promptInput = buildPromptInput(profile, latestHeightLog);
   const inputHash = hashInput(promptInput);
@@ -196,10 +196,15 @@ export const createInitialPredictionForUser = async (userId: string): Promise<vo
     .limit(1);
 
   if (previousPrediction && previousPrediction.inputHash === inputHash) {
-    return;
+    return inputHash;
   }
 
-  const prediction = await generatePrediction(promptInput, profile, latestHeightLog, previousPrediction);
+  const prediction = await generatePrediction(
+    promptInput,
+    profile,
+    latestHeightLog,
+    previousPrediction,
+  );
 
   await db.insert(heightPredictions).values({
     userId,
@@ -209,9 +214,11 @@ export const createInitialPredictionForUser = async (userId: string): Promise<vo
     growthCompletionPercent: prediction.growthCompletionPercent,
     inputHash,
   });
+
+  return inputHash;
 };
 
-export const createPredictionFromLatestLog = async (userId: string): Promise<void> => {
+export const createPredictionFromLatestLog = async (userId: string): Promise<string> => {
   const { profile, latestHeightLog } = await getProfileAndLatestHeightLog(userId);
 
   if (!latestHeightLog) {
@@ -231,10 +238,15 @@ export const createPredictionFromLatestLog = async (userId: string): Promise<voi
     .limit(1);
 
   if (previousPrediction && previousPrediction.inputHash === inputHash) {
-    return;
+    return inputHash;
   }
 
-  const prediction = await generatePrediction(promptInput, profile, latestHeightLog, previousPrediction);
+  const prediction = await generatePrediction(
+    promptInput,
+    profile,
+    latestHeightLog,
+    previousPrediction,
+  );
 
   await db.insert(heightPredictions).values({
     userId,
@@ -244,4 +256,6 @@ export const createPredictionFromLatestLog = async (userId: string): Promise<voi
     growthCompletionPercent: prediction.growthCompletionPercent,
     inputHash,
   });
+
+  return inputHash;
 };

@@ -242,7 +242,7 @@ const getProfileAndPrediction = async (userId: string) => {
   return { profile, prediction };
 };
 
-export const createInitialRoutineForUser = async (userId: string): Promise<void> => {
+export const createInitialRoutineForUser = async (userId: string): Promise<string> => {
   const { profile, prediction } = await getProfileAndPrediction(userId);
   const promptInput = buildRoutinePromptInput(profile, prediction, 'active');
   const { plan, inputHash } = await generateRoutinePlan(promptInput, 'active');
@@ -255,13 +255,14 @@ export const createInitialRoutineForUser = async (userId: string): Promise<void>
     .limit(1);
 
   if (latestRoutine && latestRoutine.inputHash === inputHash && latestRoutine.status === 'active') {
-    return;
+    return inputHash;
   }
 
   await insertRoutinePlan(userId, 'active', inputHash, plan);
+  return inputHash;
 };
 
-export const createRecoveryRoutineForUser = async (userId: string): Promise<void> => {
+export const createRecoveryRoutineForUser = async (userId: string): Promise<string> => {
   const { profile, prediction } = await getProfileAndPrediction(userId);
   const promptInput = buildRoutinePromptInput(profile, prediction, 'recovery');
   const { plan, inputHash } = await generateRoutinePlan(promptInput, 'recovery');
@@ -274,8 +275,9 @@ export const createRecoveryRoutineForUser = async (userId: string): Promise<void
     .limit(1);
 
   if (latestRoutine && latestRoutine.inputHash === inputHash && latestRoutine.status === 'recovery') {
-    return;
+    return inputHash;
   }
 
   await insertRoutinePlan(userId, 'recovery', inputHash, plan);
+  return inputHash;
 };

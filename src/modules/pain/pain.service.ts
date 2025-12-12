@@ -1,6 +1,7 @@
 import { ReportPainRequestBody, ReportPainResponse } from '../../../shared/api-contracts';
 import { PainEvent } from '../../../shared/domain-models';
 import { db, painEvents } from '../../db/client';
+import { recoveryRoutineQueue } from '../../jobs/queues';
 import { createRecoveryRoutineForUser } from '../routine/routine.generator';
 
 const mapPainEvent = (event: typeof painEvents.$inferSelect): PainEvent => ({
@@ -26,7 +27,9 @@ export const reportPainEvent = async (
     })
     .returning();
 
-  await createRecoveryRoutineForUser(userId);
+  const recoveryInputHash = await createRecoveryRoutineForUser(userId);
+
+  await recoveryRoutineQueue.add('recoveryRoutine', { userId, inputHash: recoveryInputHash });
 
   return {
     painEvent: mapPainEvent(inserted),

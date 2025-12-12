@@ -46,11 +46,11 @@ export const handleOnboarding = async (
     });
   }
 
-  await createInitialPredictionForUser(userId);
-  await createInitialRoutineForUser(userId);
+  const predictionInputHash = await createInitialPredictionForUser(userId);
+  const routineInputHash = await createInitialRoutineForUser(userId);
 
-  await predictionQueue.add('prediction', { userId });
-  await routineQueue.add('routine', { userId });
+  await predictionQueue.add('prediction', { userId, inputHash: predictionInputHash });
+  await routineQueue.add('routine', { userId, inputHash: routineInputHash });
 
   return {
     onboardingId,
