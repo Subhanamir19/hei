@@ -9,7 +9,30 @@ const bucketDreamHeightOdds = (dreamHeightCm: number, predicted: number): number
   return 20;
 };
 
-export const createInitialPredictionForUser = async (userId: string): Promise<void> => {
+const computePredictedAdultHeight = (
+  profile: typeof userProfiles.$inferSelect,
+  latestHeightLog: typeof heightLogs.$inferSelect | undefined,
+): number => {
+  let predictedBase = (profile.motherHeightCm + profile.fatherHeightCm) / 2;
+
+  if (profile.gender === 'male') {
+    predictedBase += 5;
+  } else if (profile.gender === 'female') {
+    predictedBase -= 5;
+  }
+
+  if (latestHeightLog) {
+    if (latestHeightLog.heightCm > predictedBase) {
+      predictedBase += 1;
+    } else if (latestHeightLog.heightCm < predictedBase) {
+      predictedBase -= 1;
+    }
+  }
+
+  return Math.round(predictedBase);
+};
+
+const getProfileAndLatestHeightLog = async (userId: string) => {
   const [profile] = await db
     .select()
     .from(userProfiles)
@@ -29,23 +52,49 @@ export const createInitialPredictionForUser = async (userId: string): Promise<vo
     .orderBy(desc(heightLogs.recordedAt))
     .limit(1);
 
-  let predictedBase = (profile.motherHeightCm + profile.fatherHeightCm) / 2;
+  return { profile, latestHeightLog };
+};
 
-  if (profile.gender === 'male') {
-    predictedBase += 5;
-  } else if (profile.gender === 'female') {
-    predictedBase -= 5;
+export const createInitialPredictionForUser = async (userId: string): Promise<void> => {
+  const { profile, latestHeightLog } = await getProfileAndLatestHeightLog(userId);
+
+  const predictedAdultHeightCm = computePredictedAdultHeight(profile, latestHeightLog);
+  const dreamHeightOddsPercent = bucketDreamHeightOdds(
+    profile.dreamHeightCm,
+    predictedAdultHeightCm,
+  );
+
+  await db.insert(heightPredictions).values({
+    userId,
+    predictedAdultHeightCm,
+    percentile: 50,
+    dreamHeightOddsPercent,
+    growthCompletionPercent: 50,
+  });
+};
+
+export const createPredictionFromLatestLog = async (userId: string): Promise<void> => {
+  const { profile, latestHeightLog } = await getProfileAndLatestHeightLog(userId);
+
+  if (!latestHeightLog) {
+    const error = new Error('No height log found');
+    (error as any).statusCode = 404;
+    throw error;
   }
 
-  if (latestHeightLog) {
-    if (latestHeightLog.heightCm > predictedBase) {
-      predictedBase += 1;
-    } else if (latestHeightLog.heightCm < predictedBase) {
-      predictedBase -= 1;
-    }
-  }
+  const computedPrediction = computePredictedAdultHeight(profile, latestHeightLog);
 
-  const predictedAdultHeightCm = Math.round(predictedBase);
+  const [previousPrediction] = await db
+    .select()
+    .from(heightPredictions)
+    .where(eq(heightPredictions.userId, userId))
+    .orderBy(desc(heightPredictions.createdAt))
+    .limit(1);
+
+  const predictedAdultHeightCm = previousPrediction
+    ? Math.max(computedPrediction, previousPrediction.predictedAdultHeightCm)
+    : computedPrediction;
+
   const dreamHeightOddsPercent = bucketDreamHeightOdds(
     profile.dreamHeightCm,
     predictedAdultHeightCm,
