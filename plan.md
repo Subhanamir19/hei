@@ -215,3 +215,32 @@ Task completion updates weekly summary deterministically
 Concerning notes
 
 AI coach must not fabricate state; all claims must trace to stored records.
+
+Phase 6: AI-backed Prediction and Routine Generation (controlled, deterministic prompts)
+Scope: Introduce OpenAI calls for height prediction (onboarding + height logs) and for routine generation (active + recovery), without altering API contracts.
+
+Infrastructure
+- Add OpenAI client module with temperature=0, bounded max tokens, and strict schema validation.
+- Add recoveryRoutineQueue (if absent) alongside existing predictionQueue and routineQueue. Queue payloads include inputHash to skip unchanged work.
+
+Prediction (OpenAI)
+- Inputs: user profile + latest height log. Compute inputHash; if unchanged from last prediction, return cached prediction row, skip OpenAI.
+- Prompt: deterministic template producing predictedAdultHeightCm, percentile, dreamHeightOddsPercent, growthCompletionPercent. Validate numeric bounds; on validation failure, fall back to existing deterministic formula.
+- Invocation points: onboarding and POST /height/logs only. Never mutate routines on height logs.
+- Persistence: append new row to height_predictions; do not mutate existing rows.
+
+Routine generation (OpenAI)
+- Active routine: inputs = user profile + latest prediction. Recovery routine: inputs = user profile + latest prediction + recent pain event metadata.
+- Prompt: deterministic template that must output 30 days, each with 3–5 tasks, type ∈ {stretch,strength,lifestyle}, sane reps/durations, no images. Temperature=0.
+- Validation: enforce counts/types/bounds; if invalid, fall back to deterministic template generator.
+- Queuing: routineQueue for active, recoveryRoutineQueue for recovery. Use inputHash to avoid regenerating when inputs unchanged.
+- Persistence: insert into routines + routine_days + routine_tasks only; do not change API contracts.
+
+Safety and guardrails
+- If OpenAI response missing required fields or fails validation, log and use deterministic fallback; never fail request.
+- Never call OpenAI for tracking or other endpoints. Keep AI coach as the only other AI entry point.
+
+Acceptance tests
+- With unchanged inputs, repeated calls do not trigger new OpenAI generations (hash-based skip).
+- On onboarding + height log, prediction rows append (AI output or fallback) and /height/report reflects latest.
+- Routine generation yields 30 days with valid tasks; recovery flow yields a recovery routine with correct schema and status.

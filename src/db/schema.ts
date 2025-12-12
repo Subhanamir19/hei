@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   pgTable,
   text,
@@ -49,6 +50,7 @@ export const heightPredictions = pgTable('height_predictions', {
   percentile: integer('percentile').notNull(),
   dreamHeightOddsPercent: integer('dream_height_odds_percent').notNull(),
   growthCompletionPercent: integer('growth_completion_percent').notNull(),
+  inputHash: text('input_hash'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -59,6 +61,7 @@ export const routines = pgTable('routines', {
     .references(() => users.id),
   status: text('status').notNull(),
   month: text('month').notNull(),
+  inputHash: text('input_hash'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -91,4 +94,21 @@ export const painEvents = pgTable('pain_events', {
   severity: text('severity').notNull(),
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const taskLogs = pgTable('task_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  routineId: uuid('routine_id')
+    .notNull()
+    .references(() => routines.id),
+  routineTaskId: uuid('routine_task_id')
+    .notNull()
+    .references(() => routineTasks.id),
+  dayIndex: integer('day_index').notNull(),
+  date: dateColumn('date').notNull(),
+  completed: boolean('completed').notNull(),
+  loggedAt: timestamp('logged_at', { withTimezone: true }).defaultNow().notNull(),
 });
