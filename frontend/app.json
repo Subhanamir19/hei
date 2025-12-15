@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Height App",
+    "slug": "height-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1021"
+    },
+    "ios": { "supportsTablet": true },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B1021"
+      }
+    },
+    "web": { "bundler": "metro", "output": "single" },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": { "newArchEnabled": false },
+          "ios": { "newArchEnabled": false }
+        }
+      ]
+    ],
+    "extra": { "apiUrl": "http://localhost:8080" }
+  }
+}

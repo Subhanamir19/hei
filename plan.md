@@ -244,3 +244,10 @@ Acceptance tests
 - With unchanged inputs, repeated calls do not trigger new OpenAI generations (hash-based skip).
 - On onboarding + height log, prediction rows append (AI output or fallback) and /height/report reflects latest.
 - Routine generation yields 30 days with valid tasks; recovery flow yields a recovery routine with correct schema and status.
+
+------------
+
+Auth storage: plan uses AsyncStorage for userId/flags, but the architecture mentions SecureStore for tokens. Since we’re still on temporary x-user-id, AsyncStorage is fine; when real auth lands, we must switch to
+     SecureStore for tokens. We should note this so we don’t leak beyond temporary use.
+     
+  2. Exercises screen: frontend-architecture.md lists an “exercises” screen, plan doesn’t mention it. If it’s in scope, add a placeholder task; if not, we can defer.
