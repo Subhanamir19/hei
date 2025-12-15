@@ -3,7 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuthStore } from '../state/auth';
-import { OnboardingScreen } from '../screens/OnboardingScreen';
+import { OnboardingFlow } from '../screens/onboarding/OnboardingFlow';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { RoutineScreen } from '../screens/RoutineScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
@@ -45,7 +45,7 @@ export const AppNavigator: React.FC = () => {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!shouldShowMain ? (
-          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Onboarding" component={OnboardingFlow} />
         ) : (
           <Stack.Screen name="Main" component={MainTabs} />
         )}

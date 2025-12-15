@@ -1,8 +1,8 @@
 import React from 'react';
-import { QueryProvider } from './src/hooks/QueryProvider';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { useFonts, Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, Poppins_700Bold } from '@expo-google-fonts/poppins';
 import { View, Text } from 'react-native';
+import { AppProviders } from './src/providers/AppProviders';
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -21,8 +21,8 @@ export default function App() {
   }
 
   return (
-    <QueryProvider>
+    <AppProviders>
       <AppNavigator />
-    </QueryProvider>
+    </AppProviders>
   );
 }

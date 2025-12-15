@@ -24,11 +24,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ onboardingCompleted: completed });
   },
   hydrate: async () => {
-    const storedUser = await AsyncStorage.getItem(USER_ID_KEY);
-    const storedOnboarding = await AsyncStorage.getItem(ONBOARDING_KEY);
+    await AsyncStorage.multiRemove([USER_ID_KEY, ONBOARDING_KEY]);
     set({
-      userId: storedUser,
-      onboardingCompleted: storedOnboarding === '1',
+      userId: null,
+      onboardingCompleted: false,
     });
   },
 }));
