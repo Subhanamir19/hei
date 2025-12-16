@@ -1,182 +1,242 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import Svg, { Path, Circle } from 'react-native-svg';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
 import { Screen } from '../components/Screen';
-import { radii } from '../theme/tokens';
+import { colors, radii, spacing, shadows } from '../theme/tokens';
+import { useAuthStore } from '../state/auth';
+import { getHeightReport } from '../api/height';
+import { getTrackingSummary } from '../api/tracking';
+import { HeightPrediction, TrackingSummary } from '../api/types';
 
-const palette = {
-  background: '#F6EFD9',
-  card: '#FFFFFF',
-  cardAlt: '#F6D9AC',
-  ink: '#111217',
-  muted: '#565B68',
-  divider: '#E2E4EA',
-  track: '#E7E9EF',
-  purple: '#8A48F6',
-  purple2: '#B36DFB',
-  green: '#96BF5D',
-  blackCard: '#0E0A16',
+const formatHeight = (cm: number): string => {
+  const totalInches = cm / 2.54;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches - feet * 12);
+  return `${feet}'${inches}" (${cm} cm)`;
 };
 
-const shadow = {
-  shadowColor: '#000',
-  shadowOpacity: 0.08,
-  shadowRadius: 12,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 8,
+const formatDate = (iso: string): string => {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
+
+const StatCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <View style={styles.statCard}>
+    <Text style={styles.statLabel}>{label}</Text>
+    <Text style={styles.statValue}>{value}</Text>
+  </View>
+);
 
 export const DashboardScreen: React.FC = () => {
+  const userId = useAuthStore((s) => s.userId);
+
+  const {
+    data: heightReport,
+    isLoading: loadingHeight,
+    error: heightError,
+    refetch: refetchHeight,
+  } = useQuery({
+    queryKey: ['height-report', userId],
+    queryFn: () => getHeightReport(userId as string),
+    enabled: Boolean(userId),
+  });
+
+  const {
+    data: trackingData,
+    isLoading: loadingTracking,
+    error: trackingError,
+    refetch: refetchTracking,
+  } = useQuery({
+    queryKey: ['tracking-summary', userId],
+    queryFn: () => getTrackingSummary(userId as string),
+    enabled: Boolean(userId),
+  });
+
+  const latestPrediction: HeightPrediction | undefined = heightReport?.latestPrediction;
+  const history = useMemo(() => heightReport?.predictionHistory ?? [], [heightReport]);
+  const tracking: TrackingSummary | undefined = trackingData?.trackingSummary;
+
+  if (!userId) {
+    return (
+      <Screen>
+        <View style={styles.centered}>
+          <Text style={styles.title}>Complete onboarding to view your dashboard.</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  const showLoading = loadingHeight || loadingTracking;
+
   return (
-    <Screen backgroundColor={palette.background} statusBarStyle="dark-content">
+    <Screen>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
         <View style={styles.headerRow}>
-          <Text style={styles.icon}>‹</Text>
-          <Text style={styles.title}>Last Report</Text>
-          <Text style={styles.icon}>⚙️</Text>
+          <Text style={styles.title}>Dashboard</Text>
+          <TouchableOpacity onPress={() => { void refetchHeight(); void refetchTracking(); }}>
+            <Text style={styles.refresh}>Refresh</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.statRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Current height</Text>
-            <Text style={styles.statValue}>5&apos;11&quot;</Text>
+        {showLoading ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.neonCyan} />
           </View>
-          <View style={[styles.statCard, styles.statCardAlt]}>
-            <Text style={[styles.statLabel, { color: palette.ink }]}>Predicted height</Text>
-            <Text style={[styles.statValue, { color: palette.ink }]}>6&apos;2&quot;</Text>
-          </View>
-        </View>
+        ) : null}
 
-        <View style={styles.ctaCard}>
-          <Text style={styles.ctaText}>Optimize up to 1.1 inches ☑️</Text>
-        </View>
+        {heightError ? (
+          <Text style={styles.error}>Height data unavailable. Pull to refresh after onboarding.</Text>
+        ) : null}
 
-        <View style={[styles.chartCard, shadow]}>
-          <Text style={styles.chartTitle}>Height / Age</Text>
-          <Svg width="100%" height="170" viewBox="0 0 320 170">
-            <Path
-              d="M16 140 C 90 120, 150 115, 205 95 S 280 70 304 62"
-              stroke={palette.purple2}
-              strokeWidth={5}
-              fill="none"
-              strokeLinecap="round"
-            />
-            <Circle cx="168" cy="108" r="12" fill={palette.background} stroke={palette.purple} strokeWidth={6} />
-            <Circle cx="168" cy="108" r="5" fill={palette.purple} />
-          </Svg>
-          <View style={[styles.callout, styles.calloutLeft]}>
-            <Text style={styles.calloutText}>Monthly update</Text>
-          </View>
-          <View style={[styles.callout, styles.calloutRight]}>
-            <Text style={styles.calloutText}>+0.1 inches</Text>
-          </View>
-        </View>
+        {trackingError ? (
+          <Text style={styles.error}>Tracking data unavailable. Try refreshing.</Text>
+        ) : null}
 
-        <View style={[styles.rankPill, shadow]}>
-          <Text style={styles.rankText}>Taller than 76.7% of your age 🌐</Text>
-        </View>
-
-        <View style={styles.metricRow}>
-          <View style={[styles.metricCard, shadow]}>
-            <Text style={styles.metricLabel}>Dream height odds</Text>
-            <View style={styles.metricValueRow}>
-              <Text style={styles.metricValue}>68%</Text>
-              <Text style={styles.metricSub}>(6&apos;3&quot;)</Text>
+        {latestPrediction ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Height prediction</Text>
+            <View style={styles.statRow}>
+              <StatCard label="Predicted adult height" value={formatHeight(latestPrediction.predictedAdultHeightCm)} />
+              <StatCard label="Percentile" value={`${latestPrediction.percentile}%`} />
             </View>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFillGreen, { width: '68%' }]} />
+            <View style={[styles.statRow, { marginTop: spacing.sm }]}>
+              <StatCard label="Dream height odds" value={`${latestPrediction.dreamHeightOddsPercent}%`} />
+              <StatCard label="Growth completion" value={`${latestPrediction.growthCompletionPercent}%`} />
             </View>
           </View>
-          <View style={[styles.metricCard, shadow]}>
-            <Text style={styles.metricLabel}>Growth complete</Text>
-            <Text style={styles.metricValue}>89.8%</Text>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFillPurple, { width: '90%' }]} />
+        ) : null}
+
+        {history.length > 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Prediction history</Text>
+            {history.map((p) => (
+              <View key={p.id} style={styles.historyRow}>
+                <View>
+                  <Text style={styles.historyDate}>{formatDate(p.createdAt)}</Text>
+                  <Text style={styles.historyHeight}>{formatHeight(p.predictedAdultHeightCm)}</Text>
+                </View>
+                <View style={styles.historyBadge}>
+                  <Text style={styles.historyBadgeText}>{p.percentile} %ile</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {tracking ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Tracking summary</Text>
+            <View style={styles.statRow}>
+              <StatCard label="This week" value={`${tracking.currentWeekCompletionPercent}%`} />
+              <StatCard
+                label="Consistency delta"
+                value={`${tracking.consistencyDeltaPercent > 0 ? '+' : ''}${tracking.consistencyDeltaPercent}%`}
+              />
+            </View>
+            <View style={[styles.statRow, { marginTop: spacing.sm }]}>
+              <StatCard label="Total tasks done" value={`${tracking.totalTasksCompleted}`} />
+              <StatCard label="Pain events" value={`${tracking.totalPainEvents}`} />
+            </View>
+            <View style={[styles.statRow, { marginTop: spacing.sm }]}>
+              <StatCard label="Active streak" value={`${tracking.activeStreakDays} days`} />
+              <StatCard label="Recovery days" value={`${tracking.recoveryDaysThisWeek}`} />
             </View>
           </View>
-        </View>
+        ) : null}
       </ScrollView>
     </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 8, paddingBottom: 32, gap: 16 },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.lg },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
   },
-  icon: { fontSize: 22, color: palette.ink },
-  title: { fontSize: 28, fontWeight: '700', color: palette.ink, flex: 1, textAlign: 'center' },
-  statRow: { flexDirection: 'row', gap: 12 },
+  title: {
+    fontSize: 24,
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+  },
+  refresh: {
+    color: colors.neonCyan,
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.card,
+  },
+  sectionLabel: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    marginBottom: spacing.sm,
+  },
+  statRow: { flexDirection: 'row', gap: spacing.md },
   statCard: {
     flex: 1,
-    backgroundColor: palette.card,
-    borderRadius: radii.lg,
-    padding: 14,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    padding: spacing.md,
     borderWidth: 1,
-    borderColor: palette.divider,
-    ...shadow,
+    borderColor: colors.border,
   },
-  statCardAlt: { backgroundColor: palette.cardAlt, borderColor: palette.cardAlt },
-  statLabel: { fontSize: 12, color: palette.muted, fontWeight: '600', marginBottom: 8 },
-  statValue: { fontSize: 28, color: palette.ink, fontWeight: '700' },
-  ctaCard: {
-    backgroundColor: palette.card,
-    borderRadius: radii.lg,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+  statLabel: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 12,
+    marginBottom: spacing.xs,
+  },
+  statValue: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 18,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  historyDate: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_500Medium',
+  },
+  historyHeight: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+    marginTop: 2,
+  },
+  historyBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: palette.divider,
-    ...shadow,
+    borderColor: colors.border,
   },
-  ctaText: { fontSize: 16, fontWeight: '600', color: palette.ink },
-  chartCard: {
-    backgroundColor: palette.blackCard,
-    borderRadius: radii.lg,
-    padding: 16,
-    position: 'relative',
+  historyBadgeText: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_600SemiBold',
   },
-  chartTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginBottom: 8 },
-  callout: {
-    position: 'absolute',
-    backgroundColor: palette.card,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    ...shadow,
-  },
-  calloutLeft: { top: 10, left: 14 },
-  calloutRight: { bottom: 12, right: 14 },
-  calloutText: { color: palette.ink, fontSize: 14, fontWeight: '600' },
-  rankPill: {
-    backgroundColor: '#0F0D16',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: radii.lg,
-    alignItems: 'center',
-  },
-  rankText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  metricRow: { flexDirection: 'row', gap: 12 },
-  metricCard: {
+  centered: {
     flex: 1,
-    backgroundColor: palette.card,
-    borderRadius: radii.lg,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: palette.divider,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  metricLabel: { fontSize: 12, fontWeight: '600', color: palette.muted, marginBottom: 8 },
-  metricValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginBottom: 8 },
-  metricValue: { fontSize: 24, fontWeight: '700', color: palette.ink },
-  metricSub: { fontSize: 13, fontWeight: '600', color: palette.muted },
-  barTrack: { height: 10, borderRadius: 999, backgroundColor: palette.track, overflow: 'hidden' },
-  barFillGreen: { height: '100%', backgroundColor: palette.green },
-  barFillPurple: { height: '100%', backgroundColor: palette.purple },
+  error: {
+    color: colors.danger,
+    fontFamily: 'Poppins_500Medium',
+  },
 });

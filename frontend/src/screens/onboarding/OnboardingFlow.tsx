@@ -1,13 +1,15 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+﻿import React, { useMemo, useState } from 'react';
+import { ScrollView, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { StepHeader } from '../../components/StepHeader';
-import { ProgressDots } from '../../components/ProgressDots';
 import { Chip } from '../../components/Chip';
-import { NeonButton } from '../../components/NeonButton';
 import { WheelPicker } from '../../components/onboarding/WheelPicker';
 import { useAuthStore } from '../../state/auth';
 import { colors, radii, spacing } from '../../theme/tokens';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { submitOnboarding, OnboardingPayload } from '../../api/onboarding';
 
 type Gender = 'male' | 'female' | 'non_binary' | 'unspecified';
 type Ethnicity =
@@ -46,7 +48,6 @@ interface FormState {
   ethnicity?: Ethnicity;
   motherHeight: HeightSelection;
   fatherHeight: HeightSelection;
-  includeCurrentHeight: boolean;
   currentHeight: HeightSelection;
   footSize: ShoeSelection;
   workoutCapacity?: WorkoutCapacity;
@@ -82,6 +83,20 @@ const workoutOptions: { value: WorkoutCapacity; label: string; description: stri
 const heightCmOptions = Array.from({ length: 131 }, (_, i) => 120 + i); // 120-250
 const footSizeCmOptions = Array.from({ length: 18 }, (_, i) => 18 + i); // 18-35
 const sleepHourOptions = Array.from({ length: 17 }, (_, i) => i); // 0-16
+const monthNames = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
 const yearsOptions = (() => {
   const now = new Date();
@@ -129,7 +144,6 @@ const initialForm: FormState = {
   dob: { day: 1, month: 1, year: yearsOptions[0] },
   motherHeight: initialHeight(165),
   fatherHeight: initialHeight(175),
-  includeCurrentHeight: false,
   currentHeight: initialHeight(170),
   footSize: { unit: 'cm', value: 26 },
   dreamHeight: initialHeight(180),
@@ -154,8 +168,11 @@ const steps = [
 export const OnboardingFlow: React.FC = () => {
   const [stepIndex, setStepIndex] = useState(1);
   const [form, setForm] = useState<FormState>(initialForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const setUser = useAuthStore((s) => s.setUser);
   const setOnboardingCompleted = useAuthStore((s) => s.setOnboardingCompleted);
+  const navigation = useNavigation<any>();
 
   const updateHeight = (key: keyof FormState, updater: (h: HeightSelection) => HeightSelection) => {
     setForm((prev) => ({ ...prev, [key]: updater(prev[key] as HeightSelection) }));
@@ -180,7 +197,7 @@ export const OnboardingFlow: React.FC = () => {
       case 6:
         return form.fatherHeight.cm >= 100 && form.fatherHeight.cm <= 250;
       case 7:
-        return form.includeCurrentHeight ? form.currentHeight.cm >= 100 && form.currentHeight.cm <= 250 : true;
+        return form.currentHeight.cm >= 100 && form.currentHeight.cm <= 250;
       case 8:
         return shoeToCm(form.footSize) >= 18 && shoeToCm(form.footSize) <= 35;
       case 9:
@@ -196,16 +213,50 @@ export const OnboardingFlow: React.FC = () => {
     }
   }, [form, stepIndex]);
 
+  const buildPayload = (): OnboardingPayload => {
+    const dateOfBirth = new Date(form.dob.year, form.dob.month - 1, form.dob.day).toISOString();
+    return {
+      gender: form.gender as string,
+      dateOfBirth,
+      ethnicity: form.ethnicity as string,
+      parentHeightsCm: {
+        mother: form.motherHeight.cm,
+        father: form.fatherHeight.cm,
+      },
+      footSizeCm: Number(shoeToCm(form.footSize).toFixed(1)),
+      workoutCapacity: form.workoutCapacity as string,
+      averageSleepHours: form.averageSleepHours ?? 0,
+      dreamHeightCm: form.dreamHeight.cm,
+      initialHeightCm: form.currentHeight.cm,
+      initialHeightRecordedAt: new Date().toISOString(),
+    };
+  };
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      const payload = buildPayload();
+      const res = await submitOnboarding(payload);
+      await setUser(res.userId);
+      await setOnboardingCompleted(false);
+      navigation.navigate('Preparing', { userId: res.userId });
+    } catch (err: any) {
+      setSubmitError(err?.message ?? 'Failed to submit onboarding.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const goNext = () => {
-    if (!nextEnabled) return;
+    if (!nextEnabled || submitting) return;
     if (stepIndex < steps.length) {
       setStepIndex((prev) => prev + 1);
       return;
     }
 
-    void setUser('demo-user');
-    void setOnboardingCompleted(true);
-    Alert.alert('Ready', 'Phase 2 will connect to backend submission.');
+    void handleSubmit();
   };
 
   const goBack = () => {
@@ -215,8 +266,10 @@ export const OnboardingFlow: React.FC = () => {
   const renderWelcome = () => (
     <View style={styles.card}>
       <Text style={styles.headline}>Build your height plan</Text>
-      <Text style={styles.body}>We’ll collect a few details to personalize predictions and routines.</Text>
-      <NeonButton label="Start" onPress={goNext} style={{ marginTop: spacing.xl }} />
+      <Text style={styles.body}>
+        We&apos;ll collect a few details to predict your height potential and create your custom plan.
+      </Text>
+      <OnboardingButton label="Next" onPress={goNext} style={{ marginTop: spacing.xl }} />
     </View>
   );
 
@@ -225,27 +278,53 @@ export const OnboardingFlow: React.FC = () => {
       <Text style={styles.sectionLabel}>Select your gender</Text>
       <View style={styles.chipWrap}>
         {genderOptions.map((option) => (
-          <Chip
+          <Pressable
             key={option.value}
-            label={option.label}
-            selected={form.gender === option.value}
             onPress={() => setForm((prev) => ({ ...prev, gender: option.value }))}
-            style={styles.chip}
-          />
+            style={[
+              styles.listCard,
+              form.gender === option.value && styles.listCardSelected,
+            ]}
+          >
+            <Text style={styles.listCardText}>{option.label}</Text>
+          </Pressable>
         ))}
       </View>
+      <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} />
     </View>
   );
 
-  const renderDob = () => (
-    <View style={styles.card}>
-      <Text style={styles.sectionLabel}>Date of birth</Text>
-      <View style={styles.wheelRow}>
-        <WheelPicker data={monthOptions} selectedValue={form.dob.month} onChange={(month) => setForm((prev) => ({ ...prev, dob: { ...prev.dob, month } }))} renderLabel={(m) => `Month ${m}`} />
-        <WheelPicker data={dayOptions} selectedValue={form.dob.day} onChange={(day) => setForm((prev) => ({ ...prev, dob: { ...prev.dob, day } }))} renderLabel={(d) => `Day ${d}`} />
-        <WheelPicker data={yearsOptions} selectedValue={form.dob.year} onChange={(year) => setForm((prev) => ({ ...prev, dob: { ...prev.dob, year } }))} renderLabel={(y) => `${y}`} />
+const renderDob = () => (
+  <View style={styles.card}>
+    <Text style={styles.sectionLabel}>Date of birth</Text>
+    <View style={styles.wheelRow}>
+      <View style={styles.wheelColumn}>
+        <WheelPicker
+          data={monthOptions}
+          selectedValue={form.dob.month}
+          onChange={(month) => setForm((prev) => ({ ...prev, dob: { ...prev.dob, month } }))}
+          renderLabel={(m) => monthNames[m - 1]}
+        />
+      </View>
+      <View style={styles.wheelColumn}>
+        <WheelPicker
+          data={dayOptions}
+          selectedValue={form.dob.day}
+          onChange={(day) => setForm((prev) => ({ ...prev, dob: { ...prev.dob, day } }))}
+          renderLabel={(d) => `${d}`}
+        />
+      </View>
+      <View style={styles.wheelColumn}>
+        <WheelPicker
+          data={yearsOptions}
+          selectedValue={form.dob.year}
+          onChange={(year) => setForm((prev) => ({ ...prev, dob: { ...prev.dob, year } }))}
+          renderLabel={(y) => `${y}`}
+        />
       </View>
     </View>
+    <OnboardingButton label="Next" onPress={goNext} />
+  </View>
   );
 
   const renderEthnicity = () => (
@@ -253,23 +332,28 @@ export const OnboardingFlow: React.FC = () => {
       <Text style={styles.sectionLabel}>Ethnicity</Text>
       <View style={styles.chipWrap}>
         {ethnicityOptions.map((option) => (
-          <Chip
+          <Pressable
             key={option.value}
-            label={option.label}
-            selected={form.ethnicity === option.value}
             onPress={() => setForm((prev) => ({ ...prev, ethnicity: option.value }))}
-            style={styles.chip}
-          />
+            style={[
+              styles.listCard,
+              form.ethnicity === option.value && styles.listCardSelected,
+            ]}
+          >
+            <Text style={styles.listCardText}>{option.label}</Text>
+          </Pressable>
         ))}
       </View>
+      <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} />
     </View>
   );
 
-  const renderHeightPicker = (
-    label: string,
-    key: 'motherHeight' | 'fatherHeight' | 'currentHeight' | 'dreamHeight',
-    wrapCard: boolean = true,
-  ) => {
+const renderHeightPicker = (
+  label: string,
+  key: 'motherHeight' | 'fatherHeight' | 'currentHeight' | 'dreamHeight',
+  wrapCard: boolean = true,
+  showButton: boolean = true,
+) => {
     const height = form[key];
     const cmMode = height.unit === 'cm';
 
@@ -305,26 +389,31 @@ export const OnboardingFlow: React.FC = () => {
           />
         ) : (
           <View style={styles.wheelRow}>
-            <WheelPicker
-              data={[...Array(8)].map((_, i) => i + 4)} // 4-11 ft
-              selectedValue={height.ft}
-              onChange={(ft) => {
-                const cm = toCmFromFeet(ft, height.inches);
-                updateHeight(key, () => ({ ...height, ft, cm }));
-              }}
-              renderLabel={(ft) => `${ft} ft`}
-            />
-            <WheelPicker
-              data={[...Array(12)].map((_, i) => i)}
-              selectedValue={height.inches}
-              onChange={(inches) => {
-                const cm = toCmFromFeet(height.ft, inches);
-                updateHeight(key, () => ({ ...height, inches, cm }));
-              }}
-              renderLabel={(inch) => `${inch} in`}
-            />
+            <View style={styles.wheelColumn}>
+              <WheelPicker
+                data={[...Array(8)].map((_, i) => i + 3)} // 3-10 ft
+                selectedValue={height.ft}
+                onChange={(ft) => {
+                  const cm = toCmFromFeet(ft, height.inches);
+                  updateHeight(key, () => ({ ...height, ft, cm }));
+                }}
+                renderLabel={(ft) => `${ft} ft`}
+              />
+            </View>
+            <View style={styles.wheelColumn}>
+              <WheelPicker
+                data={[...Array(12)].map((_, i) => i)} // 0-11 in
+                selectedValue={height.inches}
+                onChange={(inches) => {
+                  const cm = toCmFromFeet(height.ft, inches);
+                  updateHeight(key, () => ({ ...height, inches, cm }));
+                }}
+                renderLabel={(inch) => `${inch} in`}
+              />
+            </View>
           </View>
         )}
+        {showButton ? <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} /> : null}
       </View>
     );
 
@@ -335,21 +424,8 @@ export const OnboardingFlow: React.FC = () => {
 
   const renderCurrentHeight = () => (
     <View style={styles.card}>
-      <View style={styles.rowBetween}>
-        <Text style={styles.sectionLabel}>Current height (optional)</Text>
-        <Chip
-          label={form.includeCurrentHeight ? 'Included' : 'Skip'}
-          selected={form.includeCurrentHeight}
-          onPress={() =>
-            setForm((prev) => ({ ...prev, includeCurrentHeight: !prev.includeCurrentHeight }))
-          }
-        />
-      </View>
-      {form.includeCurrentHeight ? (
-        renderHeightPicker('Current height', 'currentHeight', false)
-      ) : (
-        <Text style={styles.body}>You can add this later in tracking.</Text>
-      )}
+      {renderHeightPicker('Current height', 'currentHeight', false, false)}
+      <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} />
     </View>
   );
 
@@ -367,19 +443,20 @@ export const OnboardingFlow: React.FC = () => {
         const cm = shoeToCm(prev.footSize);
         let nextValue = prev.footSize.value;
         const clamp = (val: number, min: number, max: number) => Math.min(Math.max(val, min), max);
+        const toHalf = (val: number) => Math.round(val * 2) / 2;
         if (nextUnit === 'cm') nextValue = clamp(Math.round(cm * 10) / 10, 18, 35);
-        if (nextUnit === 'eu') nextValue = clamp(Math.round(cm * 1.5), 34, 55);
-        if (nextUnit === 'us_m') nextValue = clamp(Math.round(cm * 1.5 - 23.5), 4, 21);
-        if (nextUnit === 'us_w') nextValue = clamp(Math.round(cm * 1.5 - 22), 5, 22);
+        if (nextUnit === 'eu') nextValue = clamp(toHalf(cm * 1.5), 34, 55);
+        if (nextUnit === 'us_m') nextValue = clamp(toHalf(cm * 1.5 - 23.5), 4, 21.5);
+        if (nextUnit === 'us_w') nextValue = clamp(toHalf(cm * 1.5 - 22), 5, 22.5);
         return { ...prev, footSize: { unit: nextUnit, value: nextValue } };
       });
     };
 
     const renderData = () => {
       if (unit === 'cm') return footSizeCmOptions;
-      if (unit === 'eu') return Array.from({ length: 22 }, (_, i) => 34 + i); // 34-55
-      if (unit === 'us_m') return Array.from({ length: 18 }, (_, i) => 4 + i); // 4-21
-      if (unit === 'us_w') return Array.from({ length: 18 }, (_, i) => 5 + i); // 5-22
+      if (unit === 'eu') return Array.from({ length: 43 }, (_, i) => 34 + i * 0.5); // 34-55 in 0.5
+      if (unit === 'us_m') return Array.from({ length: 35 }, (_, i) => 4 + i * 0.5); // 4-21.5
+      if (unit === 'us_w') return Array.from({ length: 35 }, (_, i) => 5 + i * 0.5); // 5-22.5
       return footSizeCmOptions;
     };
 
@@ -387,18 +464,25 @@ export const OnboardingFlow: React.FC = () => {
       <View style={styles.card}>
         <View style={styles.rowBetween}>
           <Text style={styles.sectionLabel}>Foot size</Text>
-          <View style={styles.row}>
-            {unitOptions.map((opt, idx) => (
-              <Chip
-                key={opt.value}
-                label={opt.label}
-                selected={unit === opt.value}
-                onPress={() => setUnit(opt.value)}
-                style={idx > 0 ? styles.chipSpacing : undefined}
-              />
-            ))}
+          <View style={styles.rowCenter}>
+            {unitOptions.map((opt, idx) => {
+              const pillStyle: StyleProp<ViewStyle> = [
+                styles.unitChip,
+                idx > 0 ? styles.chipSpacing : undefined,
+              ];
+              return (
+                <Chip
+                  key={opt.value}
+                  label={opt.label}
+                  selected={unit === opt.value}
+                  onPress={() => setUnit(opt.value)}
+                  style={pillStyle}
+                />
+              );
+            })}
           </View>
         </View>
+        <Text style={styles.centerLabel}>Select your size</Text>
         <WheelPicker
           data={renderData()}
           selectedValue={form.footSize.value}
@@ -406,6 +490,7 @@ export const OnboardingFlow: React.FC = () => {
           renderLabel={(v) => `${v} ${unit.toUpperCase().replace('_', ' ')}`}
         />
         <Text style={styles.helperText}>{`≈ ${formatFootSize(form.footSize)}`}</Text>
+        <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} />
       </View>
     );
   };
@@ -413,21 +498,32 @@ export const OnboardingFlow: React.FC = () => {
   const renderWorkout = () => (
     <View style={styles.card}>
       <Text style={styles.sectionLabel}>Workout capacity</Text>
-      <View style={styles.chipWrap}>
-        {workoutOptions.map((opt) => (
-          <TouchableOpacity
-            key={opt.value}
-            onPress={() => setForm((prev) => ({ ...prev, workoutCapacity: opt.value }))}
-            style={[
-              styles.workoutCard,
-              form.workoutCapacity === opt.value && styles.workoutCardSelected,
-            ]}
-          >
-            <Text style={styles.workoutLabel}>{opt.label}</Text>
-            <Text style={styles.body}>{opt.description}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {workoutOptions.map((opt) => (
+        <TouchableOpacity
+          key={opt.value}
+          onPress={() => setForm((prev) => ({ ...prev, workoutCapacity: opt.value }))}
+          style={[
+            styles.workoutCard,
+            form.workoutCapacity === opt.value && styles.workoutCardSelected,
+          ]}
+        >
+          <View style={styles.radioRow}>
+            <View
+              style={[
+                styles.radioOuter,
+                form.workoutCapacity === opt.value && styles.radioOuterSelected,
+              ]}
+            >
+              {form.workoutCapacity === opt.value ? <View style={styles.radioInner} /> : null}
+            </View>
+            <View>
+              <Text style={styles.workoutLabel}>{opt.label}</Text>
+              <Text style={styles.body}>{opt.description}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      ))}
+      <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} />
     </View>
   );
 
@@ -440,35 +536,38 @@ export const OnboardingFlow: React.FC = () => {
         onChange={(hours) => setForm((prev) => ({ ...prev, averageSleepHours: hours }))}
         renderLabel={(h) => `${h} h`}
       />
+      <OnboardingButton label="Next" onPress={goNext} disabled={!nextEnabled} />
     </View>
   );
 
   const renderReview = () => (
-    <View style={styles.card}>
-      <Text style={styles.sectionLabel}>Review</Text>
-      <SummaryRow label="Gender" value={form.gender ?? '—'} />
-      <SummaryRow
-        label="Date of birth"
-        value={`${form.dob.year}-${String(form.dob.month).padStart(2, '0')}-${String(form.dob.day).padStart(2, '0')}`}
-      />
-      <SummaryRow label="Ethnicity" value={form.ethnicity ?? '—'} />
-      <SummaryRow label="Mother height" value={formatHeight(form.motherHeight)} />
-      <SummaryRow label="Father height" value={formatHeight(form.fatherHeight)} />
-      <SummaryRow
-        label="Current height"
-        value={form.includeCurrentHeight ? formatHeight(form.currentHeight) : 'Not provided'}
-      />
-      <SummaryRow label="Foot size" value={formatFootSize(form.footSize)} />
-      <SummaryRow label="Workout" value={form.workoutCapacity ?? '—'} />
-      <SummaryRow label="Sleep" value={`${form.averageSleepHours ?? '—'} h`} />
-      <SummaryRow label="Dream height" value={formatHeight(form.dreamHeight)} />
-      <Text style={[styles.body, { marginTop: spacing.md }]}>
-        Tap Finish to proceed. Phase 2 will submit and handle readiness.
-      </Text>
-    </View>
-  );
-
-  const renderStep = () => {
+  <View style={styles.card}>
+    <Text style={styles.sectionLabel}>Review</Text>
+    <SummaryRow label="Gender" value={form.gender ?? '—'} />
+    <SummaryRow
+      label="Date of birth"
+      value={`${monthNames[form.dob.month - 1]} ${form.dob.day}, ${form.dob.year}`}
+    />
+    <SummaryRow label="Ethnicity" value={form.ethnicity ?? '—'} />
+    <SummaryRow label="Mother height" value={formatHeight(form.motherHeight)} />
+    <SummaryRow label="Father height" value={formatHeight(form.fatherHeight)} />
+    <SummaryRow label="Current height" value={formatHeight(form.currentHeight)} />
+    <SummaryRow label="Foot size" value={formatFootSize(form.footSize)} />
+    <SummaryRow label="Workout" value={form.workoutCapacity ?? '—'} />
+    <SummaryRow label="Sleep" value={`${form.averageSleepHours ?? '—'} h`} />
+    <SummaryRow label="Dream height" value={formatHeight(form.dreamHeight)} />
+    <Text style={[styles.body, { marginTop: spacing.md }]}>
+      Tap Submit to proceed. We&apos;ll prepare your prediction and routine next.
+    </Text>
+    {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
+    <OnboardingButton
+      label={submitting ? 'Submitting...' : 'Submit'}
+      onPress={goNext}
+      disabled={submitting}
+    />
+  </View>
+);
+const renderStep = () => {
     switch (stepIndex) {
       case 1:
         return renderWelcome();
@@ -499,37 +598,21 @@ export const OnboardingFlow: React.FC = () => {
     }
   };
 
-  const primaryLabel = stepIndex === steps.length ? 'Finish' : 'Next';
-
   return (
-    <Screen>
-      <ProgressDots total={steps.length} current={stepIndex} />
-      <StepHeader
-        title={steps[stepIndex - 1]}
-        subtitle="Complete each step to personalize your plan."
-        currentStep={stepIndex}
+    <Screen backgroundColor="#0A0A0A" statusBarStyle="light-content">
+      <Header
+        stepIndex={stepIndex}
         totalSteps={steps.length}
+        title={steps[stepIndex - 1]}
+        onBack={stepIndex > 1 ? goBack : undefined}
       />
       <ScrollView
         contentContainerStyle={{ paddingBottom: spacing.xxl }}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
       >
         {renderStep()}
       </ScrollView>
-      <View style={styles.footer}>
-        {stepIndex > 1 ? (
-          <TouchableOpacity style={styles.secondaryButton} onPress={goBack}>
-            <Text style={styles.secondaryLabel}>Back</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ flex: 1 }} />
-        )}
-        <NeonButton
-          label={primaryLabel}
-          onPress={goNext}
-          style={{ flex: 1, marginLeft: stepIndex > 1 ? spacing.md : 0, opacity: nextEnabled ? 1 : 0.5 }}
-        />
-      </View>
     </Screen>
   );
 };
@@ -539,6 +622,59 @@ interface SummaryRowProps {
   value: string;
 }
 
+interface HeaderProps {
+  stepIndex: number;
+  totalSteps: number;
+  title: string;
+  onBack?: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ stepIndex, totalSteps, title, onBack }) => {
+  const progress = Math.min(stepIndex / totalSteps, 1);
+  return (
+    <View style={styles.header}>
+      <View style={styles.headerRow}>
+        {onBack ? (
+          <Pressable onPress={onBack} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+          </Pressable>
+        ) : (
+          <View style={styles.backButtonPlaceholder} />
+        )}
+        <View style={styles.langPill}>
+          <Text style={styles.langFlag}>US</Text>
+          <Text style={styles.langText}>EN</Text>
+        </View>
+      </View>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+      </View>
+      <Text style={styles.headline}>{title}</Text>
+      <Text style={styles.body}>
+        This will be used to predict your height potential & create your custom plan.
+      </Text>
+    </View>
+  );
+};
+
+const OnboardingButton: React.FC<{
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+}> = ({
+  label,
+  onPress,
+  disabled,
+  style,
+}) => (
+  <Pressable onPress={disabled ? undefined : onPress} style={[style, { opacity: disabled ? 0.5 : 1 }]}>
+    <LinearGradient colors={['#A259FF', '#7739F6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButton}>
+      <Text style={styles.primaryLabel}>{label}</Text>
+    </LinearGradient>
+  </Pressable>
+);
+
 const SummaryRow: React.FC<SummaryRowProps> = ({ label, value }) => (
   <View style={styles.summaryRow}>
     <Text style={styles.summaryLabel}>{label}</Text>
@@ -547,11 +683,58 @@ const SummaryRow: React.FC<SummaryRowProps> = ({ label, value }) => (
 );
 
 const styles = StyleSheet.create({
+  header: {
+    paddingVertical: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#1A1A1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonPlaceholder: {
+    width: 36,
+    height: 36,
+  },
+  langPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 18,
+    backgroundColor: '#1A1A1A',
+  },
+  langFlag: { marginRight: spacing.xs, fontSize: 14 },
+  langText: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#1A1A1A',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  progressFill: {
+    backgroundColor: '#A259FF',
+    borderRadius: 999,
+  },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: '#111111',
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#1F1F1F',
     padding: spacing.lg,
     marginBottom: spacing.lg,
   },
@@ -559,7 +742,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontFamily: 'Poppins_700Bold',
     fontSize: 24,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   body: {
     color: colors.textSecondary,
@@ -572,10 +755,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: spacing.md,
   },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
   chip: {
     marginRight: spacing.sm,
     marginBottom: spacing.sm,
@@ -584,6 +763,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    columnGap: spacing.md,
+  },
+  wheelColumn: {
+    flex: 1,
+  },
+  listCard: {
+    width: '100%',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: '#1F1F1F',
+    marginBottom: spacing.sm,
+  },
+  listCardSelected: {
+    borderColor: '#A259FF',
+  },
+  listCardText: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  chipWrap: {
+    flexDirection: 'column',
   },
   rowBetween: {
     flexDirection: 'row',
@@ -595,8 +800,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  rowCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chipSpacing: {
     marginLeft: spacing.sm,
+  },
+  unitChip: {
+    minWidth: 64,
   },
   helperText: {
     color: colors.textSecondary,
@@ -604,13 +817,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: spacing.sm,
   },
+  centerLabel: {
+    textAlign: 'center',
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 16,
+    marginBottom: spacing.sm,
+    marginTop: spacing.md,
+  },
   workoutCard: {
-    width: '48%',
+    width: '100%',
     padding: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
+    borderColor: '#1F1F1F',
+    backgroundColor: '#1A1A1A',
     marginBottom: spacing.sm,
   },
   workoutCardSelected: {
@@ -621,6 +842,29 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
     marginBottom: spacing.xs,
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.textSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  radioOuterSelected: {
+    borderColor: '#A259FF',
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#A259FF',
   },
   footer: {
     flexDirection: 'row',
@@ -657,4 +901,25 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 14,
   },
+  error: {
+    color: colors.danger,
+    fontFamily: 'Poppins_600SemiBold',
+    marginTop: spacing.sm,
+  },
+  primaryButton: {
+    borderRadius: 999,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.lg,
+  },
+  primaryLabel: {
+    color: '#fff',
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 16,
+  },
 });
+
+
+
+

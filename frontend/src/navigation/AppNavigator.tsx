@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuthStore } from '../state/auth';
 import { OnboardingFlow } from '../screens/onboarding/OnboardingFlow';
+import { PreparingScreen } from '../screens/onboarding/PreparingScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { RoutineScreen } from '../screens/RoutineScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
@@ -45,7 +46,10 @@ export const AppNavigator: React.FC = () => {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!shouldShowMain ? (
-          <Stack.Screen name="Onboarding" component={OnboardingFlow} />
+          <>
+            <Stack.Screen name="Onboarding" component={OnboardingFlow} />
+            <Stack.Screen name="Preparing" component={PreparingScreen} />
+          </>
         ) : (
           <Stack.Screen name="Main" component={MainTabs} />
         )}

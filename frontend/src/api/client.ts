@@ -1,6 +1,9 @@
 import Constants from 'expo-constants';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  Constants.expoConfig?.extra?.apiUrl ||
+  'http://192.168.0.176:8080';
 
 export const apiFetch = async <T>(path: string, options?: RequestInit & { userId?: string }): Promise<T> => {
   const { userId, ...requestInit } = options ?? {};

@@ -1,12 +1,12 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 import { colors, radii, spacing } from '../theme/tokens';
 
 interface ChipProps {
   label: string;
   selected?: boolean;
   onPress?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const Chip: React.FC<ChipProps> = ({ label, selected = false, onPress, style }) => {

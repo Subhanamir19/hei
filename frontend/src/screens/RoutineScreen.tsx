@@ -1,193 +1,303 @@
-import React from 'react';
-import { LinearGradient } from 'expo-linear-gradient';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useMemo, useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Screen } from '../components/Screen';
-import { radii } from '../theme/tokens';
+import { colors, radii, spacing, shadows } from '../theme/tokens';
+import { useAuthStore } from '../state/auth';
+import { getActiveRoutine } from '../api/routine';
+import { createTaskLog } from '../api/tracking';
+import { Routine, RoutineTask, CreateTaskLogResponse } from '../api/types';
 
-const palette = {
-  background: '#F6EFD9',
-  card: '#FFFFFF',
-  ink: '#111217',
-  muted: '#565B68',
-  track: '#E5E7EC',
-  purple: '#8A48F6',
-  purple2: '#B36DFB',
-  green: '#96BF5D',
-  shadow: '#000',
-  pill: '#EEE8DB',
-  border: '#E3E5EA',
-};
+const TaskBadge: React.FC<{ label: string }> = ({ label }) => (
+  <View style={styles.badge}>
+    <Text style={styles.badgeText}>{label}</Text>
+  </View>
+);
 
-const shadow = {
-  shadowColor: palette.shadow,
-  shadowOpacity: 0.08,
-  shadowRadius: 12,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 8,
-};
-
-const dates = [
-  { day: '2', month: 'Jan' },
-  { day: '3', month: 'Jan' },
-  { day: '4', month: 'Jan' },
-  { day: '5', month: 'Jan', selected: true },
-  { day: '6', month: 'Jan' },
-  { day: '7', month: 'Jan' },
-  { day: '8', month: 'Jan' },
-];
-
-const tasks = [
-  { title: '1 glass of milk + honey', icon: '🥛 🍯', done: true, streak: 0.85, progress: 0.7 },
-  { title: '5m of bar hanging', icon: '🪑', done: false, streak: 0.6, progress: 0.2 },
-  { title: 'Consume 2g of fish oil', icon: '🐟', done: true, streak: 0.5, progress: 0.5 },
-  { title: '3 x (10) Cobra stretch', icon: '🐍', done: false, streak: 0.65, progress: 0.35 },
-  { title: '1500 mg Glucosamine', icon: '💊', done: true, streak: 0.75, progress: 0.6 },
-];
+const TaskCard: React.FC<{
+  task: RoutineTask;
+  onComplete: () => void;
+  isLoading: boolean;
+  lastLogged?: boolean;
+}> = ({ task, onComplete, isLoading, lastLogged }) => (
+  <View style={[styles.taskCard, lastLogged && styles.taskCardHighlight]}>
+    <View style={styles.taskHeader}>
+      <Text style={styles.taskTitle}>{task.name}</Text>
+      <TaskBadge label={task.type} />
+    </View>
+    <Text style={styles.taskMeta}>
+      {task.reps ? `${task.reps} reps` : ''}{task.reps && task.durationMinutes ? ' · ' : ''}
+      {task.durationMinutes ? `${task.durationMinutes} min` : ''}
+    </Text>
+    <TouchableOpacity
+      style={[styles.primaryButton, isLoading && { opacity: 0.6 }]}
+      onPress={isLoading ? undefined : onComplete}
+    >
+      <Text style={styles.primaryButtonText}>{isLoading ? 'Logging...' : 'Mark done'}</Text>
+    </TouchableOpacity>
+  </View>
+);
 
 export const RoutineScreen: React.FC = () => {
+  const userId = useAuthStore((s) => s.userId);
+  const [selectedDay, setSelectedDay] = useState<number>(1);
+  const [lastLoggedTaskId, setLastLoggedTaskId] = useState<string | null>(null);
+
+  const {
+    data: routineData,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['routine', userId],
+    queryFn: () => getActiveRoutine(userId as string),
+    enabled: Boolean(userId),
+  });
+
+  useEffect(() => {
+    if (routineData?.routine?.routineDays?.length) {
+      setSelectedDay(routineData.routine.routineDays[0].index);
+    }
+  }, [routineData]);
+
+  const routine: Routine | undefined = routineData?.routine;
+
+  const tasksForDay: RoutineTask[] = useMemo(() => {
+    if (!routine) return [];
+    const day = routine.routineDays.find((d) => d.index === selectedDay);
+    return (day?.routineTasks ?? []) as RoutineTask[];
+  }, [routine, selectedDay]);
+
+  const logMutation = useMutation<CreateTaskLogResponse, Error, string>({
+    mutationFn: async (taskId: string) => {
+      if (!userId || !routine) throw new Error('Missing user or routine');
+      return createTaskLog(userId, {
+        routineId: routine.id,
+        dayIndex: selectedDay,
+        taskId,
+        date: new Date().toISOString(),
+        completed: true,
+      });
+    },
+    onSuccess: (_res, taskId) => {
+      setLastLoggedTaskId(taskId);
+    },
+  });
+
+  if (!userId) {
+    return (
+      <Screen>
+        <View style={styles.centered}>
+          <Text style={styles.title}>Complete onboarding to view your routine.</Text>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
-    <Screen backgroundColor={palette.background} statusBarStyle="dark-content">
+    <Screen>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Daily Routine</Text>
-          <Text style={styles.icon}>⚙️</Text>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.datesRow}
-        >
-          {dates.map((d) => (
-            <View
-              key={`${d.day}-${d.month}`}
-              style={[styles.datePill, d.selected && styles.datePillSelected, shadow]}
-            >
-              <Text style={[styles.dateDay, d.selected && styles.dateDaySelected]}>{d.day}</Text>
-              <Text style={[styles.dateMonth, d.selected && styles.dateMonthSelected]}>{d.month}</Text>
-            </View>
-          ))}
-        </ScrollView>
-
-        <LinearGradient
-          colors={[palette.purple, palette.purple2]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.streakCard, shadow]}
-        >
-          <Text style={styles.streakLabel}>Streaks 🔥</Text>
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakValue}>7</Text>
+          <View>
+            <Text style={styles.title}>Routine</Text>
+            {routine ? (
+              <Text style={styles.subtitle}>
+                {routine.month} · {routine.status === 'recovery' ? 'Recovery' : 'Active'}
+              </Text>
+            ) : null}
           </View>
-        </LinearGradient>
-
-        <View style={styles.progressRow}>
-          <Text style={styles.progressLabel}>In progress</Text>
-          <Text style={styles.progressLabel}>5/10</Text>
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: '50%' }]} />
+          <TouchableOpacity onPress={() => void refetch()}>
+            <Text style={styles.refresh}>Refresh</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.list}>
-          {tasks.map((task) => (
-            <View key={task.title} style={[styles.taskCard, shadow]}>
-              <View style={styles.taskRow}>
-                <View style={[styles.status, task.done ? styles.statusDone : styles.statusTodo]} />
-                <Text style={styles.taskTitle}>
-                  {task.title} {task.icon}
-                </Text>
-              </View>
-              <View style={styles.barTrack}>
-                <View style={[styles.barFillPurple, { width: `${Math.round(task.streak * 100)}%` }]} />
-              </View>
-              <View style={[styles.barTrack, { marginTop: 4 }]}>
-                <View style={[styles.barFillGreen, { width: `${Math.round(task.progress * 100)}%` }]} />
-              </View>
+        {isLoading ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.neonCyan} />
+          </View>
+        ) : null}
+
+        {error ? <Text style={styles.error}>No routine yet. Finish onboarding to generate one.</Text> : null}
+
+        {routine ? (
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.daysRow}
+            >
+              {routine.routineDays.map((day) => (
+                <TouchableOpacity
+                  key={day.index}
+                  style={[
+                    styles.dayPill,
+                    day.index === selectedDay && styles.dayPillSelected,
+                  ]}
+                  onPress={() => setSelectedDay(day.index)}
+                >
+                  <Text
+                    style={[
+                      styles.dayText,
+                      day.index === selectedDay && styles.dayTextSelected,
+                    ]}
+                  >
+                    Day {day.index}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={styles.tasksContainer}>
+              <Text style={styles.sectionLabel}>Tasks</Text>
+              {tasksForDay.length === 0 ? (
+                <Text style={styles.body}>No tasks for this day.</Text>
+              ) : (
+                tasksForDay.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onComplete={() => logMutation.mutate(task.id)}
+                    isLoading={logMutation.isPending && logMutation.variables === task.id}
+                    lastLogged={lastLoggedTaskId === task.id}
+                  />
+                ))
+              )}
             </View>
-          ))}
-        </View>
+          </>
+        ) : null}
       </ScrollView>
     </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 8, paddingBottom: 24, gap: 16 },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.lg },
   headerRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  title: {
+    fontSize: 24,
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+  },
+  subtitle: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_500Medium',
+    marginTop: 2,
+  },
+  refresh: { color: colors.neonCyan, fontFamily: 'Poppins_600SemiBold' },
+  daysRow: {
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  dayPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+  },
+  dayPillSelected: {
+    backgroundColor: colors.neonCyan,
+    borderColor: colors.neonCyan,
+  },
+  dayText: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  dayTextSelected: {
+    color: '#0A0A0A',
+  },
+  tasksContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    ...shadows.card,
+  },
+  sectionLabel: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+    marginBottom: spacing.sm,
+  },
+  taskCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+  },
+  taskCardHighlight: {
+    borderColor: colors.neonMint,
+  },
+  taskHeader: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 8,
   },
-  title: { fontSize: 28, fontWeight: '700', color: palette.ink },
-  icon: { fontSize: 22, color: palette.ink },
-  datesRow: { gap: 10, paddingVertical: 4, paddingHorizontal: 4 },
-  datePill: {
-    width: 64,
-    height: 70,
-    borderRadius: radii.lg,
-    backgroundColor: palette.pill,
+  taskTitle: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 16,
+    flex: 1,
+  },
+  badge: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  badgeText: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12,
+  },
+  taskMeta: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_500Medium',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  primaryButton: {
+    backgroundColor: colors.neonCyan,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#0A0A0A',
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 14,
+  },
+  centered: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.border,
   },
-  datePillSelected: {
-    backgroundColor: '#8C5AF4',
-    borderColor: '#8C5AF4',
+  body: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_500Medium',
   },
-  dateDay: { fontSize: 20, fontWeight: '700', color: palette.ink },
-  dateMonth: { fontSize: 12, fontWeight: '600', color: palette.muted, marginTop: 4 },
-  dateDaySelected: { color: '#FFFFFF' },
-  dateMonthSelected: { color: '#F3E8FF' },
-  streakCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderRadius: radii.lg,
+  error: {
+    color: colors.danger,
+    fontFamily: 'Poppins_500Medium',
   },
-  streakLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  streakBadge: {
-    backgroundColor: 'rgba(0,0,0,0.15)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: radii.md,
-  },
-  streakValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  progressRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  progressLabel: { fontSize: 15, fontWeight: '600', color: palette.ink },
-  progressTrack: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: palette.track,
-    overflow: 'hidden',
-  },
-  progressFill: { height: '100%', backgroundColor: palette.purple },
-  list: { gap: 12 },
-  taskCard: {
-    backgroundColor: palette.card,
-    borderRadius: radii.lg,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  taskRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-  status: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#D0D4DD' },
-  statusDone: { backgroundColor: '#0F1115', borderColor: '#0F1115' },
-  statusTodo: { backgroundColor: '#FFFFFF' },
-  taskTitle: { fontSize: 16, fontWeight: '600', color: palette.ink, flex: 1 },
-  barTrack: { height: 8, borderRadius: 999, backgroundColor: palette.track, overflow: 'hidden' },
-  barFillPurple: { height: '100%', backgroundColor: palette.purple },
-  barFillGreen: { height: '100%', backgroundColor: palette.green },
 });

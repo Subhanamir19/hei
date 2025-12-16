@@ -1,123 +1,209 @@
-import React from 'react';
-import { LinearGradient } from 'expo-linear-gradient';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
+} from 'react-native';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Screen } from '../components/Screen';
-import { radii } from '../theme/tokens';
+import { colors, radii, spacing, shadows } from '../theme/tokens';
+import { useAuthStore } from '../state/auth';
+import { getTrackingSummary } from '../api/tracking';
+import { reportPain } from '../api/pain';
+import { sendAiCoachMessage } from '../api/aiCoach';
+import { TrackingSummary, PainSeverity } from '../api/types';
 
-const palette = {
-  background: '#F2F4F7',
-  card: '#FFFFFF',
-  ink: '#1A1B20',
-  muted: '#6A6F7A',
-  track: '#DDE2E8',
-  mint: '#57D3B3',
-  purpleOverlay: '#7F55D7',
-  silver: '#D9DCE2',
-};
-
-const shadow = {
-  shadowColor: '#000',
-  shadowOpacity: 0.08,
-  shadowRadius: 12,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 8,
-};
-
-const tabs = ['Train', 'Program', 'Nutrition'];
-
-const level1Nodes = [
-  { label: '🔥', active: true, filled: true },
-  { label: 'Day 2', active: true, filled: true },
-  { label: 'Day 3', active: false, filled: false },
-  { label: 'Day 4', active: false, filled: false },
-  { label: 'Day 1', active: false, filled: false },
-  { label: 'Day 7', active: false, filled: false },
-  { label: '🏆', active: true, filled: true },
-  { label: 'Day 5', active: false, filled: false },
-];
-
-const level2Nodes = [
-  { label: 'Day 1', active: false, filled: false },
-  { label: 'Day 2', active: false, filled: false },
-  { label: '+', active: false, filled: false },
-  { label: '👀', active: false, filled: false },
-  { label: 'Day 4', active: false, filled: false },
-];
-
-const Node: React.FC<{ label: string; active?: boolean; filled?: boolean }> = ({ label, active, filled }) => (
-  <View style={[styles.node, shadow, active && styles.nodeActive, filled && styles.nodeFilled]}>
-    <Text style={[styles.nodeLabel, active && styles.nodeLabelActive]}>{label}</Text>
+const SummaryCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <View style={styles.summaryCard}>
+    <Text style={styles.summaryLabel}>{label}</Text>
+    <Text style={styles.summaryValue}>{value}</Text>
   </View>
 );
 
 export const TrackingScreen: React.FC = () => {
+  const userId = useAuthStore((s) => s.userId);
+  const [painArea, setPainArea] = useState('');
+  const [painSeverity, setPainSeverity] = useState<PainSeverity>('mild');
+  const [painNotes, setPainNotes] = useState('');
+  const [coachMessage, setCoachMessage] = useState('');
+  const [coachReply, setCoachReply] = useState<string | null>(null);
+
+  const {
+    data: summaryData,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['tracking', userId],
+    queryFn: () => getTrackingSummary(userId as string),
+    enabled: Boolean(userId),
+  });
+
+  const summary: TrackingSummary | undefined = summaryData?.trackingSummary;
+
+  const painMutation = useMutation({
+    mutationFn: () => {
+      if (!userId) throw new Error('Missing user');
+      return reportPain(userId, {
+        area: painArea.trim(),
+        severity: painSeverity,
+        notes: painNotes.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      setPainArea('');
+      setPainNotes('');
+      void refetch();
+    },
+  });
+
+  const coachMutation = useMutation({
+    mutationFn: async () => {
+      if (!userId) throw new Error('Missing user');
+      const res = await sendAiCoachMessage(userId, coachMessage);
+      setCoachReply(res.reply);
+    },
+  });
+
+  if (!userId) {
+    return (
+      <Screen>
+        <View style={styles.centered}>
+          <Text style={styles.title}>Complete onboarding to view tracking.</Text>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
-    <Screen backgroundColor={palette.background} statusBarStyle="dark-content">
+    <Screen>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Your plan</Text>
-          <Text style={styles.icon}>🔔</Text>
+          <Text style={styles.title}>Tracking</Text>
+          <TouchableOpacity onPress={() => void refetch()}>
+            <Text style={styles.refresh}>Refresh</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={[styles.segment, shadow]}>
-          {tabs.map((t, idx) => (
-            <View key={t} style={[styles.segmentItem, idx === 0 && styles.segmentItemActive]}>
-              <Text style={[styles.segmentText, idx === 0 && styles.segmentTextActive]}>{t}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={[styles.hero, shadow]}>
-          <LinearGradient
-            colors={['rgba(0,0,0,0.05)', 'rgba(127,85,215,0.5)']}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>70 days left</Text>
+        {isLoading ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.neonCyan} />
           </View>
+        ) : null}
+
+        {error ? <Text style={styles.error}>Unable to load tracking summary.</Text> : null}
+
+        {summary ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>This week</Text>
+            <View style={styles.summaryRow}>
+              <SummaryCard label="Completion" value={`${summary.currentWeekCompletionPercent}%`} />
+              <SummaryCard
+                label="Consistency delta"
+                value={`${summary.consistencyDeltaPercent > 0 ? '+' : ''}${summary.consistencyDeltaPercent}%`}
+              />
+            </View>
+            <View style={styles.summaryRow}>
+              <SummaryCard label="Total tasks" value={`${summary.totalTasksCompleted}`} />
+              <SummaryCard label="Active streak" value={`${summary.activeStreakDays} days`} />
+            </View>
+            <View style={styles.summaryRow}>
+              <SummaryCard label="Pain events" value={`${summary.totalPainEvents}`} />
+              <SummaryCard label="Recovery days" value={`${summary.recoveryDaysThisWeek}`} />
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>Report pain</Text>
+          <TextInput
+            placeholder="Area (e.g., lower back)"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.input}
+            value={painArea}
+            onChangeText={setPainArea}
+          />
+          <View style={styles.pillRow}>
+            {(['mild', 'moderate', 'severe'] as PainSeverity[]).map((level) => (
+              <TouchableOpacity
+                key={level}
+                style={[
+                  styles.pill,
+                  painSeverity === level && styles.pillSelected,
+                ]}
+                onPress={() => setPainSeverity(level)}
+              >
+                <Text
+                  style={[
+                    styles.pillText,
+                    painSeverity === level && styles.pillTextSelected,
+                  ]}
+                >
+                  {level}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TextInput
+            placeholder="Notes (optional)"
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { minHeight: 80 }]}
+            value={painNotes}
+            onChangeText={setPainNotes}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.primaryButton, painMutation.isPending && { opacity: 0.6 }]}
+            onPress={() => {
+              if (painMutation.isPending || !painArea.trim()) return;
+              painMutation.mutate();
+            }}
+          >
+            <Text style={styles.primaryButtonText}>
+              {painMutation.isPending ? 'Sending...' : 'Submit pain report'}
+            </Text>
+          </TouchableOpacity>
+          {painMutation.error ? <Text style={styles.error}>Failed to submit pain event.</Text> : null}
+          {painMutation.isSuccess ? (
+            <Text style={styles.success}>Pain event logged and recovery routine queued.</Text>
+          ) : null}
         </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Level 1 🌶️</Text>
-          <Text style={styles.sectionCount}>1/7</Text>
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFillMint, { width: '25%' }]} />
-        </View>
-        <View style={styles.nodeRow}>
-          {level1Nodes.slice(0, 4).map((n, i) => (
-            <React.Fragment key={`${n.label}-${i}`}>
-              <Node label={n.label} active={n.active} filled={n.filled} />
-              {i < 3 && <View style={styles.connector} />}
-            </React.Fragment>
-          ))}
-        </View>
-        <View style={[styles.nodeRow, { marginTop: 12 }]}>
-          {level1Nodes.slice(4).map((n, i) => (
-            <React.Fragment key={`${n.label}-${i}`}>
-              <Node label={n.label} active={n.active} filled={n.filled} />
-              {i < level1Nodes.slice(4).length - 1 && <View style={styles.connector} />}
-            </React.Fragment>
-          ))}
-        </View>
-
-        <View style={[styles.sectionHeader, { marginTop: 22 }]}>
-          <Text style={styles.sectionTitle}>Level 2 🌶️</Text>
-          <Text style={styles.sectionCount}>0/7</Text>
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFillMint, { width: '0%' }]} />
-        </View>
-        <View style={styles.nodeRow}>
-          {level2Nodes.map((n, i) => (
-            <React.Fragment key={`${n.label}-${i}`}>
-              <Node label={n.label} active={n.active} filled={n.filled} />
-              {i < level2Nodes.length - 1 && <View style={styles.connector} />}
-            </React.Fragment>
-          ))}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>AI coach</Text>
+          <TextInput
+            placeholder="Ask a question or request guidance"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.input}
+            value={coachMessage}
+            onChangeText={setCoachMessage}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.primaryButton, coachMutation.isPending && { opacity: 0.6 }]}
+            onPress={() => {
+              if (coachMutation.isPending || !coachMessage.trim()) return;
+              coachMutation.mutate();
+            }}
+          >
+            <Text style={styles.primaryButtonText}>
+              {coachMutation.isPending ? 'Sending...' : 'Send to coach'}
+            </Text>
+          </TouchableOpacity>
+          {coachReply ? (
+            <View style={styles.replyBox}>
+              <Text style={styles.replyLabel}>Coach reply</Text>
+              <Text style={styles.replyText}>{coachReply}</Text>
+            </View>
+          ) : null}
+          {coachMutation.error ? <Text style={styles.error}>Coach unavailable right now.</Text> : null}
         </View>
       </ScrollView>
     </Screen>
@@ -125,70 +211,119 @@ export const TrackingScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  scroll: { paddingHorizontal: 12, paddingBottom: 32, gap: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { fontSize: 28, fontWeight: '700', color: palette.ink },
-  icon: { fontSize: 22, color: palette.ink },
-  segment: {
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.lg },
+  headerRow: {
     flexDirection: 'row',
-    backgroundColor: '#E6E8ED',
-    borderRadius: radii.lg,
-    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  segmentItem: {
+  title: {
+    fontSize: 24,
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+  },
+  refresh: { color: colors.neonCyan, fontFamily: 'Poppins_600SemiBold' },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    ...shadows.card,
+    gap: spacing.sm,
+  },
+  sectionLabel: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 14,
+  },
+  summaryRow: { flexDirection: 'row', gap: spacing.md },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  summaryLabel: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 12,
+  },
+  summaryValue: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 18,
+    marginTop: spacing.xs,
+  },
+  input: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_500Medium',
+  },
+  pillRow: { flexDirection: 'row', gap: spacing.sm },
+  pill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+  },
+  pillSelected: {
+    backgroundColor: colors.neonCyan,
+    borderColor: colors.neonCyan,
+  },
+  pillText: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  pillTextSelected: {
+    color: '#0A0A0A',
+  },
+  primaryButton: {
+    backgroundColor: colors.neonCyan,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#0A0A0A',
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 14,
+  },
+  replyBox: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  replyLabel: {
+    color: colors.textSecondary,
+    fontFamily: 'Poppins_600SemiBold',
+    marginBottom: spacing.xs,
+  },
+  replyText: {
+    color: colors.textPrimary,
+    fontFamily: 'Poppins_500Medium',
+  },
+  centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: radii.md,
   },
-  segmentItemActive: { backgroundColor: palette.mint },
-  segmentText: { fontSize: 15, fontWeight: '600', color: palette.muted },
-  segmentTextActive: { color: '#FFFFFF' },
-  hero: {
-    height: 180,
-    borderRadius: radii.lg,
-    backgroundColor: '#999',
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
-    padding: 12,
+  error: {
+    color: colors.danger,
+    fontFamily: 'Poppins_500Medium',
   },
-  heroBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.md,
-  },
-  heroBadgeText: { color: palette.ink, fontSize: 13, fontWeight: '600' },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: palette.ink },
-  sectionCount: { fontSize: 15, fontWeight: '600', color: palette.muted },
-  progressTrack: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: palette.track,
-    overflow: 'hidden',
-    marginTop: 8,
-  },
-  progressFillMint: { height: '100%', backgroundColor: palette.mint },
-  nodeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 14 },
-  node: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: palette.silver,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nodeActive: { backgroundColor: palette.mint },
-  nodeFilled: {},
-  nodeLabel: { fontSize: 14, fontWeight: '600', color: palette.muted },
-  nodeLabelActive: { color: '#FFFFFF' },
-  connector: {
-    height: 4,
-    width: 22,
-    borderRadius: 999,
-    backgroundColor: palette.silver,
+  success: {
+    color: colors.neonMint,
+    fontFamily: 'Poppins_600SemiBold',
   },
 });

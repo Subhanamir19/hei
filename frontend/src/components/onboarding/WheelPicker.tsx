@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { FlatList, ListRenderItem, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../../theme/tokens';
 
 interface WheelPickerProps<T> {
@@ -8,6 +8,7 @@ interface WheelPickerProps<T> {
   selectedValue: T;
   onChange: (value: T) => void;
   itemHeight?: number;
+  centeredHighlight?: boolean;
 }
 
 const DEFAULT_HEIGHT = 44;
@@ -18,36 +19,26 @@ export const WheelPicker = <T,>({
   selectedValue,
   onChange,
   itemHeight = DEFAULT_HEIGHT,
+  centeredHighlight = true,
 }: WheelPickerProps<T>) => {
-  const listRef = useRef<FlatList<T>>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const index = data.findIndex((item) => item === selectedValue);
-    if (index >= 0) {
-      listRef.current?.scrollToOffset({
-        offset: index * itemHeight,
-        animated: false,
-      });
+    if (index >= 0 && scrollRef.current) {
+      scrollRef.current.scrollTo({ y: index * itemHeight, animated: false });
+      setReady(true);
     }
   }, [data, selectedValue, itemHeight]);
 
-  const renderItem: ListRenderItem<T> = ({ item }) => {
-    const selected = item === selectedValue;
-    return (
-      <View style={[styles.item, { height: itemHeight }]}>
-        <Text style={[styles.label, selected && styles.labelSelected]}>{renderLabel(item)}</Text>
-      </View>
-    );
-  };
-
   return (
     <View style={[styles.container, { height: itemHeight * 5 }]}>
-      <View style={[styles.overlay, { top: itemHeight * 2, height: itemHeight }]} />
-      <FlatList
-        ref={listRef}
-        data={data}
-        keyExtractor={(_, idx) => idx.toString()}
-        renderItem={renderItem}
+      {centeredHighlight ? (
+        <View style={[styles.overlay, { top: itemHeight * 2, height: itemHeight }]} />
+      ) : null}
+      <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={itemHeight}
         decelerationRate="fast"
@@ -59,7 +50,19 @@ export const WheelPicker = <T,>({
             onChange(value);
           }
         }}
-      />
+        contentContainerStyle={{ paddingVertical: itemHeight * 2 }}
+      >
+        {data.map((item, idx) => {
+          const selected = ready && item === selectedValue;
+          return (
+            <View key={idx} style={[styles.item, { height: itemHeight }]}>
+              <Text style={[styles.label, selected && styles.labelSelected]}>
+                {renderLabel(item)}
+              </Text>
+            </View>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 };
@@ -73,8 +76,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: '#142038',
-    opacity: 0.5,
+    backgroundColor: '#1E1E1E',
+    opacity: 0.65,
     borderRadius: 12,
   },
   item: {
