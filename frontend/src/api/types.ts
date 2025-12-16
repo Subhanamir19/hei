@@ -13,9 +13,24 @@ export interface HeightPrediction {
   readonly createdAt: ISODateString;
 }
 
+export interface HeightLog {
+  readonly id: string;
+  readonly userId: string;
+  readonly heightCm: number;
+  readonly recordedAt: ISODateString;
+}
+
 export interface GetHeightReportResponse {
   readonly latestPrediction: HeightPrediction;
   readonly predictionHistory: readonly HeightPrediction[];
+}
+
+export interface GetHeightDashboardResponse {
+  readonly latestHeightLog: HeightLog | null;
+  readonly latestPrediction: HeightPrediction;
+  readonly predictionHistory: readonly HeightPrediction[];
+  readonly dreamHeightCm: number;
+  readonly dateOfBirth: ISODateString;
 }
 
 export interface RoutineTask {

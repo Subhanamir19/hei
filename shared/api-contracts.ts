@@ -61,6 +61,14 @@ export interface GetHeightReportResponse {
   readonly predictionHistory: readonly HeightPrediction[];
 }
 
+export interface GetHeightDashboardResponse {
+  readonly latestHeightLog: HeightLog | null;
+  readonly latestPrediction: HeightPrediction;
+  readonly predictionHistory: readonly HeightPrediction[];
+  readonly dreamHeightCm: number;
+  readonly dateOfBirth: ISODateString;
+}
+
 // /height/logs
 export interface CreateHeightLogRequestBody {
   readonly heightCm: number;

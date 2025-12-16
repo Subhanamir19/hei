@@ -15,8 +15,11 @@ import {
 
 console.log('RUNTIME_DATABASE_URL', env.DATABASE_URL);
 
+const useSsl = !env.DATABASE_URL.includes('localhost') && !env.DATABASE_URL.includes('127.0.0.1');
+
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
 });
 
 export const db = drizzle(pool);

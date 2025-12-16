@@ -170,13 +170,19 @@ const generatePrediction = async (
   const parsed = aiRaw ? parseAiPrediction(aiRaw) : null;
 
   if (parsed) {
-    const monotonicHeight = previousPrediction
-      ? Math.max(parsed.predictedAdultHeightCm, previousPrediction.predictedAdultHeightCm)
-      : parsed.predictedAdultHeightCm;
+    let monotonicHeight = parsed.predictedAdultHeightCm;
+
+    if (previousPrediction) {
+      monotonicHeight = Math.max(monotonicHeight, previousPrediction.predictedAdultHeightCm);
+    }
+
+    if (latestHeightLog) {
+      monotonicHeight = Math.max(monotonicHeight, latestHeightLog.heightCm);
+    }
 
     return {
       ...parsed,
-      predictedAdultHeightCm: monotonicHeight,
+      predictedAdultHeightCm: Math.round(monotonicHeight),
     };
   }
 

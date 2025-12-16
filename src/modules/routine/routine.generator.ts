@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { desc, eq } from 'drizzle-orm';
 import { db, routineDays, routineTasks, routines, userProfiles, heightPredictions } from '../../db/client';
-import { RoutineStatus } from '../../../shared/domain-models';
+import { RoutineStatus, RoutineTaskType } from '../../../shared/domain-models';
 import { callOpenAiChat } from '../../config/openai';
 import {
   RoutinePromptInput,
@@ -18,9 +18,12 @@ const formatMonth = (date: Date): string => {
 
 const allowedTypes = new Set(['stretch', 'strength', 'lifestyle']);
 
+type Category = 'diet' | 'protocol' | 'exercise';
+
 type RoutineTaskTemplate = {
   name: string;
   type: 'stretch' | 'strength' | 'lifestyle';
+  category: Category;
   reps?: number;
   durationMinutes?: number;
 };
@@ -35,6 +38,53 @@ const hashRoutineInput = (input: RoutinePromptInput): string => {
   return createHash('sha256').update(json).digest('hex');
 };
 
+type WeightedItem = {
+  name: string;
+  type: RoutineTaskTemplate['type'];
+  category: Category;
+  weight: number;
+  baseReps?: number;
+  baseDuration?: number;
+  incrementReps?: number;
+  incrementDuration?: number;
+};
+
+const dietItems: WeightedItem[] = [
+  { name: 'Bone broth', type: 'lifestyle', category: 'diet', weight: 2, baseReps: 1 },
+  { name: 'Raw dairy milk', type: 'lifestyle', category: 'diet', weight: 2, baseReps: 1 },
+  { name: 'Royal jelly', type: 'lifestyle', category: 'diet', weight: 1, baseReps: 1 },
+  { name: 'Unsalted cheese', type: 'lifestyle', category: 'diet', weight: 1, baseReps: 1 },
+  { name: 'Raw honey', type: 'lifestyle', category: 'diet', weight: 1, baseReps: 1 },
+  { name: 'Red meat', type: 'lifestyle', category: 'diet', weight: 1, baseReps: 1 },
+  { name: 'Egg yolks', type: 'lifestyle', category: 'diet', weight: 1, baseReps: 1 },
+];
+
+const protocolItems: WeightedItem[] = [
+  { name: 'Cycling with raised seat', type: 'lifestyle', category: 'protocol', weight: 3, baseDuration: 12, incrementDuration: 2 },
+  { name: 'Massai Jump', type: 'strength', category: 'protocol', weight: 2, baseReps: 20, incrementReps: 5 },
+  { name: 'Sprinting', type: 'strength', category: 'protocol', weight: 2, baseDuration: 10, incrementDuration: 1 },
+  { name: 'Touch the sky jump', type: 'strength', category: 'protocol', weight: 1, baseReps: 15, incrementReps: 3 },
+  { name: 'High-knee sprinting', type: 'strength', category: 'protocol', weight: 1, baseDuration: 8, incrementDuration: 1 },
+];
+
+const exerciseItems: WeightedItem[] = [
+  { name: 'Cobra stretch', type: 'stretch', category: 'exercise', weight: 3, baseDuration: 5, incrementDuration: 1 },
+  { name: 'Bar hanging', type: 'strength', category: 'exercise', weight: 3, baseDuration: 5, incrementDuration: 1 },
+  { name: 'Jumping Squats', type: 'strength', category: 'exercise', weight: 2, baseReps: 12, incrementReps: 2 },
+  { name: 'Calf Stretch', type: 'stretch', category: 'exercise', weight: 2, baseDuration: 5, incrementDuration: 1 },
+  { name: 'Squats pose', type: 'strength', category: 'exercise', weight: 1, baseReps: 12, incrementReps: 2 },
+  { name: 'Forward Bend', type: 'stretch', category: 'exercise', weight: 1, baseDuration: 5, incrementDuration: 1 },
+  { name: 'Lying Butterfly Stretch', type: 'stretch', category: 'exercise', weight: 1, baseDuration: 5, incrementDuration: 1 },
+];
+
+const classifyTask = (name: string): Category | null => {
+  const lower = name.trim().toLowerCase();
+  if (dietItems.some((i) => i.name.toLowerCase() === lower)) return 'diet';
+  if (protocolItems.some((i) => i.name.toLowerCase() === lower)) return 'protocol';
+  if (exerciseItems.some((i) => i.name.toLowerCase() === lower)) return 'exercise';
+  return null;
+};
+
 const validateTask = (task: any): RoutineTaskTemplate | null => {
   if (!task || typeof task.name !== 'string' || task.name.trim().length === 0) {
     return null;
@@ -43,9 +93,15 @@ const validateTask = (task: any): RoutineTaskTemplate | null => {
     return null;
   }
 
+  const category = classifyTask(task.name);
+  if (!category) {
+    return null;
+  }
+
   const result: RoutineTaskTemplate = {
     name: task.name.trim(),
     type: task.type,
+    category,
   } as RoutineTaskTemplate;
 
   if (task.reps !== undefined) {
@@ -62,7 +118,6 @@ const validateTask = (task: any): RoutineTaskTemplate | null => {
     result.durationMinutes = Math.round(task.durationMinutes);
   }
 
-  // At least one of reps or durationMinutes should exist
   if (result.reps === undefined && result.durationMinutes === undefined) {
     return null;
   }
@@ -71,28 +126,41 @@ const validateTask = (task: any): RoutineTaskTemplate | null => {
 };
 
 const validatePlan = (raw: any): RoutinePlan[] | null => {
-  if (!raw || !Array.isArray(raw.days) || raw.days.length !== 30) {
+  if (!raw || !Array.isArray(raw.days) || raw.days.length !== 15) {
     return null;
   }
 
   const plans: RoutinePlan[] = [];
 
   for (const dayEntry of raw.days) {
-    if (typeof dayEntry.day !== 'number' || dayEntry.day < 1 || dayEntry.day > 30) {
+    if (typeof dayEntry.day !== 'number' || dayEntry.day < 1 || dayEntry.day > 15) {
       return null;
     }
 
-    if (!Array.isArray(dayEntry.tasks) || dayEntry.tasks.length < 4 || dayEntry.tasks.length > 5) {
+    if (!Array.isArray(dayEntry.tasks) || dayEntry.tasks.length !== 5) {
       return null;
     }
 
     const tasks: RoutineTaskTemplate[] = [];
+    const names = new Set<string>();
     for (const task of dayEntry.tasks) {
       const validated = validateTask(task);
       if (!validated) {
         return null;
       }
+      if (names.has(validated.name)) {
+        return null;
+      }
+      names.add(validated.name);
       tasks.push(validated);
+    }
+
+    const dietCount = tasks.filter((t) => t.category === 'diet').length;
+    const protocolCount = tasks.filter((t) => t.category === 'protocol').length;
+    const exerciseCount = tasks.filter((t) => t.category === 'exercise').length;
+
+    if (dietCount !== 1 || protocolCount !== 2 || exerciseCount !== 2) {
+      return null;
     }
 
     plans.push({ day: dayEntry.day, tasks });
@@ -110,29 +178,109 @@ const parseAiRoutine = (raw: string): RoutinePlan[] | null => {
   }
 };
 
-const fallbackTasks = (status: RoutineStatus): RoutineTaskTemplate[] => {
-  if (status === 'recovery') {
-    return [
-      { name: 'Gentle Mobility', type: 'stretch', durationMinutes: 12 },
-      { name: 'Low-Impact Core', type: 'strength', reps: 10 },
-      { name: 'Recovery Walk', type: 'lifestyle', durationMinutes: 12 },
-      { name: 'Breathing Reset', type: 'lifestyle', durationMinutes: 8 },
-    ];
-  }
+const weightedPool = (items: WeightedItem[]): WeightedItem[] =>
+  items.flatMap((item) => Array.from({ length: item.weight }).map(() => item));
 
-  return [
-    { name: 'Daily Stretch', type: 'stretch', durationMinutes: 10 },
-    { name: 'Core Strength', type: 'strength', reps: 12 },
-    { name: 'Posture Walk', type: 'lifestyle', durationMinutes: 15 },
-    { name: 'Breathing Reset', type: 'lifestyle', durationMinutes: 8 },
-  ];
+const pickFromPool = (
+  pool: WeightedItem[],
+  startIndex: number,
+  disallowName?: string,
+): { item: WeightedItem; nextIndex: number } => {
+  const len = pool.length;
+  let idx = startIndex;
+  for (let i = 0; i < len; i += 1) {
+    const candidate = pool[idx % len];
+    if (!disallowName || candidate.name !== disallowName) {
+      return { item: candidate, nextIndex: idx + 1 };
+    }
+    idx += 1;
+  }
+  // fallback to startIndex item if all are same name (should not happen with current pool)
+  return { item: pool[startIndex % len], nextIndex: startIndex + 1 };
 };
 
-const buildFallbackPlan = (status: RoutineStatus): RoutinePlan[] =>
-  Array.from({ length: 30 }, (_v, idx) => ({
-    day: idx + 1,
-    tasks: fallbackTasks(status),
-  }));
+const buildFallbackPlan = (status: RoutineStatus): RoutinePlan[] => {
+  const days = 15;
+  const dietPool = weightedPool(dietItems);
+  const protocolPool = weightedPool(protocolItems);
+  const exercisePool = weightedPool(exerciseItems);
+
+  const seenCounts = new Map<string, number>();
+  let dietIdx = 0;
+  let protocolIdx = 0;
+  let exerciseIdx = 0;
+
+  const nextValue = (item: WeightedItem): { reps?: number; durationMinutes?: number } => {
+    const used = seenCounts.get(item.name) ?? 0;
+    seenCounts.set(item.name, used + 1);
+
+    const reps =
+      item.baseReps !== undefined
+        ? item.baseReps + (item.incrementReps ?? 0) * used
+        : undefined;
+    const duration =
+      item.baseDuration !== undefined
+        ? item.baseDuration + (item.incrementDuration ?? 0) * used
+        : undefined;
+    return {
+      reps,
+      durationMinutes: duration,
+    };
+  };
+
+  const plans: RoutinePlan[] = [];
+  for (let i = 0; i < days; i += 1) {
+    const dietPick = pickFromPool(dietPool, dietIdx);
+    dietIdx = dietPick.nextIndex;
+
+    const protocolPick1 = pickFromPool(protocolPool, protocolIdx);
+    protocolIdx = protocolPick1.nextIndex;
+    const protocolPick2 = pickFromPool(protocolPool, protocolIdx, protocolPick1.item.name);
+    protocolIdx = protocolPick2.nextIndex;
+
+    const exercisePick1 = pickFromPool(exercisePool, exerciseIdx);
+    exerciseIdx = exercisePick1.nextIndex;
+    const exercisePick2 = pickFromPool(exercisePool, exerciseIdx, exercisePick1.item.name);
+    exerciseIdx = exercisePick2.nextIndex;
+
+    const dayTasks: RoutineTaskTemplate[] = [
+      {
+        name: dietPick.item.name,
+        type: dietPick.item.type,
+        category: 'diet',
+        ...nextValue(dietPick.item),
+      } as RoutineTaskTemplate,
+      {
+        name: protocolPick1.item.name,
+        type: protocolPick1.item.type,
+        category: 'protocol',
+        ...nextValue(protocolPick1.item),
+      } as RoutineTaskTemplate,
+      {
+        name: protocolPick2.item.name,
+        type: protocolPick2.item.type,
+        category: 'protocol',
+        ...nextValue(protocolPick2.item),
+      } as RoutineTaskTemplate,
+      {
+        name: exercisePick1.item.name,
+        type: exercisePick1.item.type,
+        category: 'exercise',
+        ...nextValue(exercisePick1.item),
+      } as RoutineTaskTemplate,
+      {
+        name: exercisePick2.item.name,
+        type: exercisePick2.item.type,
+        category: 'exercise',
+        ...nextValue(exercisePick2.item),
+      } as RoutineTaskTemplate,
+    ];
+
+    plans.push({ day: i + 1, tasks: dayTasks });
+  }
+
+  return plans;
+};
 
 const insertRoutinePlan = async (
   userId: string,
@@ -163,7 +311,7 @@ const insertRoutinePlan = async (
     return tasks.map((task) => ({
       routineDayId: dayRow.id,
       name: task.name,
-      type: task.type,
+      type: task.type as RoutineTaskType,
       reps: task.reps,
       durationMinutes: task.durationMinutes,
     }));
@@ -206,9 +354,18 @@ const generateRoutinePlan = async (
   const userPrompt = buildRoutineUserPrompt(input);
   const inputHash = hashRoutineInput(input);
 
-  const aiRaw = await callOpenAiChat(systemPrompt, userPrompt);
-  const aiPlan = aiRaw ? parseAiRoutine(aiRaw) : null;
-  const plan = aiPlan ?? buildFallbackPlan(status);
+  let plan: RoutinePlan[] | null = null;
+
+  try {
+    const aiRaw = await callOpenAiChat(systemPrompt, userPrompt);
+    plan = aiRaw ? parseAiRoutine(aiRaw) : null;
+  } catch {
+    plan = null;
+  }
+
+  if (!plan) {
+    plan = buildFallbackPlan(status);
+  }
 
   return { plan, inputHash };
 };

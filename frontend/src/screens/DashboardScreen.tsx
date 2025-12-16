@@ -1,12 +1,13 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { Screen } from '../components/Screen';
 import { colors, radii, spacing, shadows } from '../theme/tokens';
 import { useAuthStore } from '../state/auth';
-import { getHeightReport } from '../api/height';
+import { getHeightDashboard } from '../api/height';
 import { getTrackingSummary } from '../api/tracking';
-import { HeightPrediction, TrackingSummary } from '../api/types';
+import { HeightPrediction, TrackingSummary, HeightLog } from '../api/types';
 
 const formatHeight = (cm: number): string => {
   const totalInches = cm / 2.54;
@@ -31,13 +32,13 @@ export const DashboardScreen: React.FC = () => {
   const userId = useAuthStore((s) => s.userId);
 
   const {
-    data: heightReport,
+    data: dashboard,
     isLoading: loadingHeight,
     error: heightError,
     refetch: refetchHeight,
   } = useQuery({
-    queryKey: ['height-report', userId],
-    queryFn: () => getHeightReport(userId as string),
+    queryKey: ['height-dashboard', userId],
+    queryFn: () => getHeightDashboard(userId as string),
     enabled: Boolean(userId),
   });
 
@@ -52,8 +53,11 @@ export const DashboardScreen: React.FC = () => {
     enabled: Boolean(userId),
   });
 
-  const latestPrediction: HeightPrediction | undefined = heightReport?.latestPrediction;
-  const history = useMemo(() => heightReport?.predictionHistory ?? [], [heightReport]);
+  const latestPrediction: HeightPrediction | undefined = dashboard?.latestPrediction;
+  const history = useMemo(() => dashboard?.predictionHistory ?? [], [dashboard]);
+  const latestHeight: HeightLog | null | undefined = dashboard?.latestHeightLog;
+  const dreamHeightCm = dashboard?.dreamHeightCm ?? null;
+  const dobIso = dashboard?.dateOfBirth ?? null;
   const tracking: TrackingSummary | undefined = trackingData?.trackingSummary;
 
   if (!userId) {
@@ -67,6 +71,39 @@ export const DashboardScreen: React.FC = () => {
   }
 
   const showLoading = loadingHeight || loadingTracking;
+  const heightDeltaToDream =
+    dreamHeightCm && latestPrediction
+      ? Math.max(0, dreamHeightCm - latestPrediction.predictedAdultHeightCm)
+      : null;
+
+  const latestPoint = history.length ? history[history.length - 1] : null;
+  const prevPoint = history.length > 1 ? history[history.length - 2] : null;
+  const deltaInches =
+    latestPoint && prevPoint
+      ? ((latestPoint.predictedAdultHeightCm - prevPoint.predictedAdultHeightCm) / 2.54).toFixed(1)
+      : null;
+
+  const ageLabel = (() => {
+    if (!dobIso || !latestPoint) return null;
+    const dob = new Date(dobIso);
+    const created = new Date(latestPoint.createdAt);
+    const years = (created.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    return years.toFixed(0);
+  })();
+
+  const chartPath = (() => {
+    if (history.length < 2) return null;
+    const points = history.map((p, idx) => {
+      const x = 16 + idx * 30;
+      const y = 140 - (p.predictedAdultHeightCm - history[0].predictedAdultHeightCm) * 0.5;
+      return { x, y };
+    });
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i += 1) {
+      d += ` L ${points[i].x} ${points[i].y}`;
+    }
+    return d;
+  })();
 
   return (
     <Screen>
@@ -96,17 +133,84 @@ export const DashboardScreen: React.FC = () => {
         ) : null}
 
         {latestPrediction ? (
-          <View style={styles.card}>
-            <Text style={styles.sectionLabel}>Height prediction</Text>
-            <View style={styles.statRow}>
-              <StatCard label="Predicted adult height" value={formatHeight(latestPrediction.predictedAdultHeightCm)} />
-              <StatCard label="Percentile" value={`${latestPrediction.percentile}%`} />
-            </View>
-            <View style={[styles.statRow, { marginTop: spacing.sm }]}>
-              <StatCard label="Dream height odds" value={`${latestPrediction.dreamHeightOddsPercent}%`} />
-              <StatCard label="Growth completion" value={`${latestPrediction.growthCompletionPercent}%`} />
-            </View>
+          <>
+        <View style={styles.topRow}>
+          <View style={[styles.statTile, styles.cardLight]}>
+            <Text style={styles.tileLabel}>Current height</Text>
+            <Text style={styles.tileValue}>
+              {latestHeight ? formatHeight(latestHeight.heightCm) : '--'}
+            </Text>
           </View>
+          <View style={[styles.statTile, styles.cardGold]}>
+            <Text style={[styles.tileLabel, { color: '#2B1C09' }]}>Predicted height</Text>
+            <Text style={[styles.tileValue, { color: '#2B1C09' }]}>
+              {formatHeight(latestPrediction.predictedAdultHeightCm + 5.08)}
+            </Text>
+          </View>
+        </View>
+
+            {heightDeltaToDream !== null ? (
+              <View style={styles.ctaCard}>
+                <Text style={styles.ctaText}>
+                  Optimize up to {(heightDeltaToDream / 2.54).toFixed(1)} inches
+                </Text>
+                <Text style={styles.ctaCheck}>✓</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.chartCard}>
+              <View style={styles.chartHeader}>
+                <Text style={styles.chartTitle}>Height / Age</Text>
+                {ageLabel ? <Text style={styles.chartBadge}>{ageLabel}</Text> : null}
+              </View>
+              <View style={styles.chartBody}>
+                {chartPath ? (
+                  <Svg width="100%" height="140" viewBox="0 0 260 140">
+                    <Path d={chartPath} stroke="#A78BFA" strokeWidth={4} fill="none" />
+                    <Circle cx="130" cy="70" r="12" fill="#0F0C19" stroke="#A78BFA" strokeWidth={5} />
+                  </Svg>
+                ) : (
+                  <Text style={styles.chartPlaceholder}>More data needed to plot</Text>
+                )}
+                <View style={styles.calloutLeft}>
+                  <Text style={styles.calloutText}>Monthly update</Text>
+                </View>
+                {deltaInches ? (
+                  <View style={styles.calloutRight}>
+                    <Text style={styles.calloutText}>+{deltaInches} inches</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.pill}>
+              <Text style={styles.pillText}>
+                Taller than {latestPrediction.percentile}% of your age
+              </Text>
+            </View>
+
+            <View style={styles.metricRow}>
+              <View style={[styles.metricCard, styles.cardLight]}>
+                <Text style={[styles.metricLabel, { color: '#2B2C30' }]}>Dream height odds</Text>
+                <View style={styles.metricValueRow}>
+                  <Text style={[styles.metricValue, { color: '#2B2C30' }]}>
+                    {latestPrediction.dreamHeightOddsPercent}%
+                  </Text>
+                  {dreamHeightCm ? (
+                    <Text style={[styles.metricSub, { color: '#2B2C30' }]}>
+                      ({formatHeight(dreamHeightCm)})
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <View style={[styles.metricCard, styles.cardLight]}>
+                <Text style={[styles.metricLabel, { color: '#2B2C30' }]}>Growth complete</Text>
+                <Text style={[styles.metricValue, { color: '#2B2C30' }]}>
+                  {latestPrediction.growthCompletionPercent}%
+                </Text>
+              </View>
+            </View>
+          </>
         ) : null}
 
         {history.length > 0 ? (
@@ -116,12 +220,12 @@ export const DashboardScreen: React.FC = () => {
               <View key={p.id} style={styles.historyRow}>
                 <View>
                   <Text style={styles.historyDate}>{formatDate(p.createdAt)}</Text>
-                  <Text style={styles.historyHeight}>{formatHeight(p.predictedAdultHeightCm)}</Text>
-                </View>
-                <View style={styles.historyBadge}>
-                  <Text style={styles.historyBadgeText}>{p.percentile} %ile</Text>
-                </View>
-              </View>
+              <Text style={styles.historyHeight}>{formatHeight(p.predictedAdultHeightCm + 5.08)}</Text>
+            </View>
+            <View style={styles.historyBadge}>
+              <Text style={styles.historyBadgeText}>{p.percentile} %ile</Text>
+            </View>
+          </View>
             ))}
           </View>
         ) : null}
@@ -239,4 +343,140 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontFamily: 'Poppins_500Medium',
   },
+  topRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  statTile: {
+    flex: 1,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    ...shadows.card,
+  },
+  cardLight: {
+    backgroundColor: '#F7F5F0',
+    borderWidth: 1,
+    borderColor: '#E7E2D6',
+  },
+  cardGold: {
+    backgroundColor: '#F8E4C8',
+    borderWidth: 1,
+    borderColor: '#F1D7AF',
+  },
+  tileLabel: {
+    color: '#2B2C30',
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 12,
+    marginBottom: spacing.xs,
+  },
+  tileValue: {
+    color: '#0F1014',
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 22,
+  },
+  ctaCard: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FDFBF6',
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: '#E7E2D6',
+    ...shadows.card,
+  },
+  ctaText: {
+    color: '#2B2C30',
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 15,
+  },
+  ctaCheck: {
+    color: '#2B2C30',
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 18,
+  },
+  chartCard: {
+    marginTop: spacing.md,
+    backgroundColor: '#0F0C19',
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    ...shadows.card,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  chartTitle: {
+    color: '#EDE9FF',
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  chartBadge: {
+    color: '#EDE9FF',
+    fontFamily: 'Poppins_600SemiBold',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+  },
+  chartBody: {
+    position: 'relative',
+    height: 140,
+    justifyContent: 'center',
+  },
+  chartPlaceholder: {
+    color: '#C7C4D7',
+    textAlign: 'center',
+    fontFamily: 'Poppins_500Medium',
+  },
+  calloutLeft: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    backgroundColor: '#F7F5F0',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.md,
+    ...shadows.card,
+  },
+  calloutRight: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    right: spacing.sm,
+    backgroundColor: '#F7F5F0',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.md,
+    ...shadows.card,
+  },
+  calloutText: {
+    color: '#2B2C30',
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  pill: {
+    marginTop: spacing.md,
+    backgroundColor: '#0F0C19',
+    borderRadius: radii.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  pillText: {
+    color: '#EDE9FF',
+    fontFamily: 'Poppins_700Bold',
+  },
+  metricRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
+  metricCard: {
+    flex: 1,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#E7E2D6',
+  },
+  metricLabel: { fontSize: 12, fontWeight: '600', color: '#2B2C30', marginBottom: spacing.xs },
+  metricValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
+  metricValue: { fontSize: 22, fontWeight: '700', color: '#2B2C30' },
+  metricSub: { fontSize: 13, fontWeight: '600', color: '#3C3E45' },
 });

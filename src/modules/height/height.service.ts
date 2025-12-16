@@ -4,9 +4,10 @@ import {
   CreateHeightLogResponse,
   GetHeightLogsResponse,
   GetHeightReportResponse,
+  GetHeightDashboardResponse,
 } from '../../../shared/api-contracts';
 import { HeightLog, HeightPrediction } from '../../../shared/domain-models';
-import { db, heightLogs, heightPredictions } from '../../db/client';
+import { db, heightLogs, heightPredictions, userProfiles } from '../../db/client';
 import { createPredictionFromLatestLog } from './prediction.service';
 
 const mapPrediction = (prediction: typeof heightPredictions.$inferSelect): HeightPrediction => ({
@@ -92,5 +93,49 @@ export const createHeightLog = async (
   return {
     heightLog: mapHeightLog(inserted),
     updatedPrediction: mapPrediction(latestPrediction),
+  };
+};
+
+export const getHeightDashboard = async (
+  userId: string,
+): Promise<GetHeightDashboardResponse> => {
+  const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1);
+
+  if (!profile) {
+    const error = new Error('User profile not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const predictions = await db
+    .select()
+    .from(heightPredictions)
+    .where(eq(heightPredictions.userId, userId))
+    .orderBy(asc(heightPredictions.createdAt));
+
+  if (predictions.length === 0) {
+    const error = new Error('No predictions found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const [latestLog] = await db
+    .select()
+    .from(heightLogs)
+    .where(eq(heightLogs.userId, userId))
+    .orderBy(desc(heightLogs.recordedAt))
+    .limit(1);
+
+  const latestPrediction = predictions[predictions.length - 1];
+
+  return {
+    latestHeightLog: latestLog ? mapHeightLog(latestLog) : null,
+    latestPrediction: mapPrediction(latestPrediction),
+    predictionHistory: predictions.map(mapPrediction),
+    dreamHeightCm: profile.dreamHeightCm,
+    dateOfBirth:
+      typeof profile.dateOfBirth === 'string'
+        ? new Date(profile.dateOfBirth).toISOString()
+        : (profile.dateOfBirth as Date).toISOString(),
   };
 };
