@@ -3,16 +3,26 @@ import { env } from './env';
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = 'gpt-4o-mini';
 
+const apiKey = env.OPENAI_API_KEY.trim();
+let loggedKeyOnce = false;
+
 export const callOpenAiChat = async (
   systemPrompt: string,
   userPrompt: string,
 ): Promise<string | null> => {
   try {
+    if (!loggedKeyOnce) {
+      const keyPreview = `${apiKey.slice(0, 10)}...${apiKey.slice(-4)}`;
+      // eslint-disable-next-line no-console
+      console.log(`[OPENAI] using key ${keyPreview} (len=${apiKey.length})`);
+      loggedKeyOnce = true;
+    }
+
     const response = await fetch(OPENAI_CHAT_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: MODEL,
